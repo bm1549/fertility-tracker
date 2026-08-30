@@ -684,6 +684,28 @@ function ConfirmBar({ message, onConfirm, onCancel }) {
   );
 }
 
+// ── DISCLAIMER ────────────────────────────────────────────────────────────
+// Always-visible, non-dismissible: this tool is a personal record-keeping
+// and charting aid, not a diagnostic or medical device, and every reference
+// range shown is general population-level guidance, not a diagnosis for any
+// individual. Shown once at the top of the page and again at the bottom.
+const DISCLAIMER_TEXT = "This tool is for personal record-keeping and informational purposes only. It is not a medical device and does not provide medical advice, diagnosis, or treatment. Reference ranges shown are general population-level guidance, not a diagnosis — individual results vary. Always consult a qualified healthcare provider (your OB/GYN or reproductive endocrinologist) about your lab results, symptoms, and treatment decisions.";
+function DisclaimerBanner() {
+  return (
+    <div role="note" style={{ display: "flex", gap: 10, alignItems: "flex-start", background: "#FBEFEA", border: `1px solid ${rust}`, borderRadius: 6, padding: "12px 14px", marginBottom: 16, fontSize: 12, color: ink, lineHeight: 1.5 }}>
+      <span style={{ fontSize: 15, lineHeight: 1, marginTop: 1 }} aria-hidden="true">⚠️</span>
+      <span><strong>Not medical advice.</strong> {DISCLAIMER_TEXT}</span>
+    </div>
+  );
+}
+function DisclaimerFooter() {
+  return (
+    <div role="note" style={{ marginTop: 24, paddingTop: 16, borderTop: `1px solid ${hair}`, fontSize: 11, color: "#8A8272", lineHeight: 1.55 }}>
+      <strong style={{ color: "#6B6456" }}>Disclaimer:</strong> {DISCLAIMER_TEXT}
+    </div>
+  );
+}
+
 // ── DASHBOARD: SHARED CHART FURNITURE ────────────────────────────────────
 // NOTE: Recharts only recognizes ReferenceArea/ReferenceLine as *direct*
 // children of LineChart/BarChart, so these are returned as arrays and spread
@@ -1312,6 +1334,8 @@ export default function LocalFertilityTracker() {
     <div style={{ fontFamily: "'Helvetica Neue',Arial,sans-serif", background: paper, minHeight: "100%", padding: "22px 18px 48px" }}>
       <div style={{ maxWidth: 960, margin: "0 auto" }}>
 
+        <DisclaimerBanner />
+
         <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 12, marginBottom: 16 }}>
           <div style={{ fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: amber, fontWeight: 700, marginBottom: 3 }}>Browser-local storage</div>
           <h1 style={{ fontFamily: "Georgia,serif", fontSize: 25, color: ink, margin: 0 }}>Local Fertility Lab Tracker</h1>
@@ -1362,6 +1386,8 @@ export default function LocalFertilityTracker() {
 
           <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} />
         </div>
+
+        <DisclaimerFooter />
       </div>
     </div>
   );

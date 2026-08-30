@@ -8,6 +8,15 @@ evidence-based reference ranges, and a plain-language guide for each hormone.
 All data stays in your browser's `localStorage` on your own device. Nothing
 is ever sent to a server — there's no account and no backend.
 
+> **⚠️ Not medical advice.** This tool is for personal record-keeping and
+> informational purposes only. It is not a medical device and does not
+> provide medical advice, diagnosis, or treatment. Reference ranges shown
+> are general population-level guidance, not a diagnosis — individual
+> results vary. Always consult a qualified healthcare provider (your OB/GYN
+> or reproductive endocrinologist) about your lab results, symptoms, and
+> treatment decisions. This same disclaimer is shown, non-dismissibly, at
+> the top and bottom of the app itself.
+
 ## Live site
 
 Published via GitHub Pages: **https://bm1549.github.io/fertility-tracker/**
