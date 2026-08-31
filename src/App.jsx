@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from "react";
 import {
   LineChart, Line, XAxis, YAxis, CartesianGrid, Tooltip,
-  ReferenceArea, ReferenceLine, ResponsiveContainer, BarChart, Bar, LabelList
+  ReferenceArea, ReferenceLine, ResponsiveContainer, BarChart, Bar, LabelList, Cell
 } from "recharts";
 import {
   normalizeDate, formatDateShort, computeCycleDateRanges, formatDateRange,
@@ -910,23 +910,34 @@ function AFCByOvaryChart({ visits, selectedCycles, ageInfo }) {
 }
 
 // ── RESERVE CHART (AMH + TSH bars, plus AFC-by-cycle-day line) ──────────
-function PointInTimeChart({ visits, field, label, unit, band, refLine, yMax }) {
-  const rows = visits.filter((v) => v[field] != null).map((v) => ({ date: v.date, value: v[field] }));
+// Like AFCByOvaryChart, this is indexed by visit date rather than cycle
+// day (AMH/TSH don't move within a cycle) — but it still only shows the
+// selected cycle(s), and each bar is colored and labeled with the cycle
+// it belongs to, via the same two-line tick used for the AFC chart above.
+function PointInTimeChart({ visits, field, label, unit, band, refLine, yMax, cycleColors, cyclesToShow }) {
+  const rows = visits
+    .filter((v) => v[field] != null && cyclesToShow.includes(v.cycleLabel))
+    .map((v) => ({ date: v.date, cycleLabel: v.cycleLabel, value: v[field] }))
+    .sort((a, b) => a.date.localeCompare(b.date));
   return (
     <div>
       <div style={{ fontSize: 12, fontWeight: 600, color: ink, marginBottom: 4 }}>{label} · {unit}</div>
       {rows.length === 0 ? (
-        <div style={{ padding: "18px 0", textAlign: "center", color: "#8A8272", fontSize: 12 }}>No {label} values yet.</div>
+        <div style={{ padding: "18px 0", textAlign: "center", color: "#8A8272", fontSize: 12 }}>No {label} values recorded for the selected cycle(s).</div>
       ) : (
-        <ResponsiveContainer width="100%" height={190}>
+        <ResponsiveContainer width="100%" height={205}>
           <BarChart data={rows} margin={{ top: 24, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid stroke={hair} strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="date" tick={{ fontSize: 10, fill: "#8A8272" }} />
+            <XAxis dataKey="date" tick={makeAFCTick(rows)} height={40} interval={0} />
             <YAxis domain={[0, yMax]} tick={{ fontSize: 10, fill: "#8A8272" }} width={30} />
             {band && <ReferenceArea y1={band.y1} y2={band.y2} fill={sage} fillOpacity={0.2} stroke={sage} strokeOpacity={0.3} strokeDasharray="2 2" />}
             {refLine && <ReferenceLine y={refLine.y} stroke={amber} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: refLine.label, position: "insideTopLeft", fontSize: 9, fill: amber }} />}
-            <Tooltip contentStyle={{ background: ink, border: "none", borderRadius: 4, fontSize: 12 }} itemStyle={{ color: "#fff" }} />
-            <Bar dataKey="value" fill={sageDeep} radius={[3, 3, 0, 0]}><LabelList dataKey="value" position="top" style={{ fontSize: 10.5, fontWeight: 700, fill: ink }} /></Bar>
+            <Tooltip contentStyle={{ background: ink, border: "none", borderRadius: 4, fontSize: 12 }} itemStyle={{ color: "#fff" }}
+              formatter={(v) => [`${v} ${unit}`, label]} labelFormatter={(d, payload) => (payload && payload[0] ? `${d} · ${payload[0].payload.cycleLabel}` : d)} />
+            <Bar dataKey="value" radius={[3, 3, 0, 0]}>
+              {rows.map((r) => <Cell key={r.date} fill={cycleColors[r.cycleLabel] || sageDeep} />)}
+              <LabelList dataKey="value" position="top" style={{ fontSize: 10.5, fontWeight: 700, fill: ink }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
@@ -938,14 +949,14 @@ function ReserveChart({ visits, cycleColors, cyclesToShow, ageInfo }) {
   const amhYMax = Math.max(2, Math.ceil(amh.typicalMax + 1));
 
   return (
-    <div style={{ display: "grid", gap: 16 }}>
+    <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
       <div style={{ background: panel, border: `1px solid ${hair}`, borderRadius: 6, padding: "18px 16px 16px" }}>
         <h3 style={{ fontFamily: "Georgia,serif", fontSize: 19, color: ink, margin: "0 0 4px" }}>Ovarian reserve markers</h3>
-        <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 18px", lineHeight: 1.45 }}>AMH and TSH are shown by visit date since they're stable across the cycle. AFC is shown in the chart above (by ovary, per visit), and FSH — the third standard reserve marker — has its own chart further up. AMH's threshold reflects age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}; TSH's target doesn't shift with age.</p>
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 20 }}>
-          <PointInTimeChart visits={visits} field="amh" label="AMH" unit="ng/mL"
+        <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 18px", lineHeight: 1.45 }}>AMH and TSH are shown by visit date since they're stable across the cycle — bars are colored and labeled by the cycle each visit belongs to, and only the cycle(s) selected above are shown. AFC is shown in the chart above (by ovary, per visit), and FSH — the third standard reserve marker — has its own chart further up. AMH's threshold reflects age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}; TSH's target doesn't shift with age.</p>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20 }}>
+          <PointInTimeChart visits={visits} field="amh" label="AMH" unit="ng/mL" cycleColors={cycleColors} cyclesToShow={cyclesToShow}
             band={{ y1: amh.optimalMin, y2: amh.typicalMax }} refLine={{ y: amh.dor, label: `DOR concern <${amh.dor}` }} yMax={amhYMax} />
-          <PointInTimeChart visits={visits} field="tsh" label="TSH" unit="uIU/mL"
+          <PointInTimeChart visits={visits} field="tsh" label="TSH" unit="uIU/mL" cycleColors={cycleColors} cyclesToShow={cyclesToShow}
             band={{ y1: 0.34, y2: 2.5 }} refLine={{ y: 2.5, label: "TTC target ≤2.5" }} yMax={4} />
         </div>
       </div>
