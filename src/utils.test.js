@@ -17,6 +17,8 @@ import {
   normalizeOcrText,
   reconstructPdfLines,
   extractReportDate,
+  isMedicationLine,
+  stripMedicationLines,
 } from "./utils.js";
 
 const fixture = (name) =>
@@ -477,6 +479,146 @@ describe("parseLabText", () => {
   });
 });
 
+// ── medication list filtering ───────────────────────────────────────────
+// A portal export prints the medication list beside the labs, and its rows
+// name the same hormones: "Progesterone 200 MG Capsule" is a 200mg
+// prescription, not a day-21 progesterone of 200 ng/mL.
+describe("medication list filtering", () => {
+  describe("isMedicationLine", () => {
+    it("flags a prescription row by its dose strength", () => {
+      expect(isMedicationLine("Progesterone 200 MG Capsule")).toBe(true);
+      expect(isMedicationLine("Progesterone 200 MG")).toBe(true);
+      expect(isMedicationLine("Letrozole 2.5 MG Tablet")).toBe(true);
+      expect(isMedicationLine("Chorionic Gonadotropin 10000 UNIT Solution")).toBe(true);
+    });
+
+    it("flags a prescription row by its dosage form or SIG wording", () => {
+      expect(isMedicationLine("1 capsule at bedtime Orally Once a day; Duration: 10 days")).toBe(true);
+      expect(isMedicationLine("inject 225 units as directed Subcutaneous daily")).toBe(true);
+      expect(isMedicationLine("Progesterone in oil 50 mg/mL")).toBe(true);
+      expect(isMedicationLine("estradiol patch — apply twice weekly")).toBe(true);
+    });
+
+    it("leaves a result row alone, including lab units that look like doses", () => {
+      expect(isMedicationLine("Progesterone 1.2 ng/mL 0.1-0.9")).toBe(false);
+      expect(isMedicationLine("Estradiol 412 pg/mL")).toBe(false);
+      // "mcg/dL" and "IU/mL" are how assays report out, not how a drug is dosed.
+      expect(isMedicationLine("T4 (THYROXINE), TOTAL 8.5 4.5-12.0 mcg/dL")).toBe(false);
+      expect(isMedicationLine("TPOab* 10 0-150 IU/mL")).toBe(false);
+      expect(isMedicationLine("FSH 5.2 IU/L")).toBe(false);
+    });
+
+    it("does not read a paragraph about hormone therapy as a prescription", () => {
+      const prose =
+        "Consider creating a more balanced progesterone/estradiol ratio with " +
+        "progesterone and/or estrogen supplementation, taken daily (assuming no " +
+        "contraindications); consult with a health care provider for proper dosing " +
+        "and to review any medication you are already taking before starting.";
+      expect(isMedicationLine(prose)).toBe(false);
+    });
+  });
+
+  describe("stripMedicationLines", () => {
+    it("drops every row under a MEDICATIONS heading, bare entries included", () => {
+      const { text, removed } = stripMedicationLines(
+        "MEDICATIONS\nProgesterone 200 MG Capsule 08/07/2026 Active\nProgesterone Unknown"
+      );
+      expect(text.trim()).toBe("");
+      expect(removed).toBe(2);
+    });
+
+    it("keeps the line count so a wrapped value still follows its label", () => {
+      const text = "Progesterone 200 MG Capsule\nProgesterone\n2.4";
+      expect(stripMedicationLines(text).text.split("\n")).toHaveLength(3);
+    });
+
+    it("recognizes the headings a portal prints over the list", () => {
+      ["MEDICATIONS", "Medications", "Current Medications", "Your Medication List",
+       "Med list", "Prescriptions"].forEach((heading) => {
+        // A bare list entry with no prescription vocabulary of its own is
+        // dropped on the strength of the heading above it.
+        expect(stripMedicationLines(`${heading}\nProgesterone 200`).removed).toBe(1);
+      });
+    });
+
+    it("closes the list at the next section heading", () => {
+      const { text } = stripMedicationLines(
+        "Current Medications\nProgesterone 200 MG Capsule\nLab Results\nProgesterone 1.2"
+      );
+      expect(text).toContain("Progesterone 1.2");
+      expect(text).not.toContain("200 MG");
+    });
+
+    it("closes the list at a row printed in assay units", () => {
+      const { text } = stripMedicationLines(
+        "Medications\nProgesterone 200 MG Capsule\nProgesterone 1.2 ng/mL\nEstradiol 412"
+      );
+      expect(text).toContain("Progesterone 1.2 ng/mL");
+      expect(text).toContain("Estradiol 412");
+    });
+
+    it("leaves a document with no medication list untouched", () => {
+      const text = "FSH 5.2 mIU/mL\nLH 3.8 mIU/mL";
+      expect(stripMedicationLines(text)).toEqual({ text, removed: 0 });
+    });
+  });
+
+  describe("parseLabText over medication rows", () => {
+    it("does not import a prescribed dose as a result", () => {
+      const row =
+        "Progesterone 200 MG Capsule 1 capsule at bedtime Orally Once a day; " +
+        "Duration: 10 days 08/07/2026 Active";
+      expect(parseLabText(row).values).toEqual({});
+      expect(parseLabText("Estradiol 2 MG Tablet 1 tablet Orally twice a day").values).toEqual({});
+      expect(parseLabText("Progesterone in oil 50 mg/mL inject 1 mL IM nightly").values).toEqual({});
+    });
+
+    it("does not take a prescription's start date as the visit date", () => {
+      expect(parseLabText("MEDICATIONS\nProgesterone 200 MG Capsule 08/07/2026 Active").date).toBe("");
+    });
+
+    it("reports how many medication rows it ignored", () => {
+      const doc = "MEDICATIONS\nProgesterone 200 MG Capsule\nLetrozole 2.5 MG Tablet";
+      expect(parseLabText(doc).medicationLines).toBe(2);
+      expect(parseLabText("Progesterone: 12.8 ng/mL").medicationLines).toBe(0);
+    });
+
+    it("still reads the results when both are in one document", () => {
+      const doc = `
+        Collected: 08/12/2026
+
+        LAB RESULTS
+        Estradiol      412   pg/mL
+        Progesterone   1.2   ng/mL
+
+        MEDICATIONS
+        Medication                 SIG (Take, Route, Frequency, Duration)   Start Date
+        Progesterone 200 MG        1 capsule at bedtime                     08/07/2026
+        Capsule                    Orally Once a day;
+        Estradiol 2 MG Tablet      1 tablet Orally twice a day              08/06/2026
+      `;
+      const { values, date } = parseLabText(doc);
+      expect(values.e2).toBe("412");
+      expect(values.pgn).toBe("1.2");
+      expect(date).toBe("2026-08-12");
+    });
+
+    it("reads the labs when the medication list comes first", () => {
+      const doc = [
+        "CURRENT MEDICATIONS",
+        "Progesterone 200 MG Capsule   1 capsule at bedtime   08/07/2026   Active",
+        "",
+        "LABORATORY RESULTS",
+        "Collected 08/14/2026",
+        "Progesterone   1.2   ng/mL",
+      ].join("\n");
+      const { values, date } = parseLabText(doc);
+      expect(values.pgn).toBe("1.2");
+      expect(date).toBe("2026-08-14");
+    });
+  });
+});
+
 // ── normalizeOcrText ────────────────────────────────────────────────────
 describe("normalizeOcrText", () => {
   it("replaces vertical bars with spaces", () => {
@@ -605,6 +747,17 @@ describe("real report fixtures", () => {
     expect(valuesOf(fixture("thyroid-quest-basic.ocr.txt"))).toEqual({ tsh: "1.70" });
     // OCR read "TSH" as "SH" in this capture; normalization recovers it.
     expect(valuesOf(fixture("thyroid-quest-expanded.ocr.txt"))).toEqual({ tsh: "3.51" });
+  });
+
+  it("patient-portal medication list detects nothing", () => {
+    // Screenshot of a fertility clinic's medication table: every row names a
+    // drug, and three name hormones this app tracks. The old parser read
+    // "Progesterone 200 MG Capsule" as a progesterone of 200 ng/mL and the
+    // prescription's start date as the visit date.
+    const text = fixture("portal-medication-list.ocr.txt");
+    expect(valuesOf(text)).toEqual({});
+    expect(parseLabText(text).date).toBe("");
+    expect(parseLabText(text).medicationLines).toBeGreaterThan(10);
   });
 
   it("hormone brochure with no results detects nothing", () => {

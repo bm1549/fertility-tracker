@@ -1385,6 +1385,13 @@ function SmartImport({ onImportRows }) {
                 ))}
               </div>
             )}
+            {parsed.medicationLines > 0 && (
+              <div style={{ fontSize: 11.5, color: "#6B6456", lineHeight: 1.5, marginTop: detectedCount > 0 ? 10 : 0 }}>
+                Ignored {parsed.medicationLines} medication list{" "}
+                {parsed.medicationLines === 1 ? "row" : "rows"} — a prescribed dose
+                (&ldquo;Progesterone 200 MG Capsule&rdquo;) is not a measured lab result.
+              </div>
+            )}
             {detectedCount > 0 && (
               <button onClick={handleAddToGrid}
                 style={{ marginTop: 12, padding: "8px 18px", borderRadius: 4, border: "none", background: sageDeep, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>

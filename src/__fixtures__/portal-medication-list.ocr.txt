@@ -1,0 +1,48 @@
+MEDICATIONS
+
+Medication SIG (Take, Route, Frequency, Duration) Notes Start Date End Date Status
+
+Chorionic Gonadotropin 10000 inject 10,000 units once subcutaneously 08/05/2026 Active
+
+UNIT Solution Reconstituted daily; Duration: 1 days
+
+Follistim AQ 900 UNT/1.08ML inject 225 units as directed 08/06/2026 Active
+
+Solution Subcutaneous daily; Duration: 10 days
+
+Gonal-f RFF Rediject 900 as directed Subcutaneous daily; 07/27/2026 Unknown
+
+UNT/1.44ML Solution Pen-injector ~~ Duration: 7 days
+
+Letrozole 2.5 MG Tablet 1 tablet Orally twice a day; Duration: 5 08/06/2026 Active
+days
+
+Letrozole 2.5 MG Tablet 2 Orally Once a day; Duration: 5 days 07/09/2026 Unknown
+
+Pregnyl 10000 UNIT Solution as directed subcuaneously daily; 07/08/2026 Unknown
+
+Reconstituted Duration: 1 days
+
+Pregnyl 10000 UNIT Solution mix with 1mlof saline and inject 10000 07/27/2026 Unknown
+
+Reconstituted units subg once; Duration: 1 days
+
+Endometrin 100 MG Insert 1 vaginal insert Vaginal Twice a day; 06/26/2026 Unknown
+Duration: 30 days
+
+Adderall Unknown
+
+Progesterone 200 MG Capsule 1 capsule at bedtime Orally Once a day; 08/07/2026 Active
+Duration: 10 days
+
+CoQ10 Unknown
+
+Magnesium Unknown
+
+Flonase Unknown
+
+Prenatal Unknown
+
+Progesterone Unknown
+
+Fish Oil Unknown

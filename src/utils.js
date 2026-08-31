@@ -193,6 +193,76 @@ export function normalizeOcrText(text) {
   return t;
 }
 
+// ── MEDICATION LIST FILTERING ───────────────────────────────────────────
+// Portal exports and after-visit summaries print the medication list in the
+// same document as the labs, and its rows carry the same hormone names:
+// "Progesterone 200 MG Capsule" is a prescription for a 200mg capsule, not
+// a day-21 progesterone of 200 ng/mL. Every signal below is prescription
+// vocabulary — a dose strength, a dosage form, SIG/route wording — that a
+// result row never carries, so lab lines pass through untouched.
+
+// Units a drug is dispensed in. A lab concentration can look the same
+// ("8.5 mcg/dL"), so a strength unit followed by "/" only counts when it
+// reads per-millilitre the way a vial is labeled ("50 mg/mL", "900
+// UNT/1.08ML"); IU/mL and µU/mL are how assays report out, never a dose.
+const DOSE_UNITS = "mcg|mg|µg|μg|ug|gm|g|units?|unts?";
+const DOSE_STRENGTH_RE = new RegExp(`\\d+(\\.\\d+)?\\s*(${DOSE_UNITS}|iu)\\b(?!\\s*/)`, "i");
+const DOSE_PER_ML_RE = new RegExp(`\\d+(\\.\\d+)?\\s*(${DOSE_UNITS})\\s*/\\s*\\d*\\.?\\d*\\s*ml\\b`, "i");
+
+const DOSAGE_FORM_RE = /\b(tablets?|tabs?|capsules?|caplets?|softgels?|gel\s?caps?|lozenges?|troches?|suppositor(y|ies)|pessar(y|ies)|vials?|amp[ou]{1,2}les?|syringes?|pen[\s-]?injectors?|auto[\s-]?injectors?|inhalers?|transdermal|sublingual\w*|patch(es)?)\b/i;
+
+const SIG_RE = /\b(takes?|taking|inject(s|ed|ing|ions?)?|instill|swallow|appl(y|ied)|orally|by mouth|subcutaneous\w*|subcut|sub-?q|intramuscular\w*|intravaginal\w*|vaginally|rectally|topically|as directed|as needed|at bedtime|before bed|nightly|once a day|twice a day|three times a day|every \d+ hours?|daily|b\.?i\.?d|t\.?i\.?d|q\.?i\.?d|q\.?h\.?s|p\.?r\.?n|refills?|dispense|sig|prescri\w*|duration:\s*\d+)\b/i;
+
+// Assay units. A row that prints one is a result, whatever else is on it —
+// this is what closes a medication list that never got a closing heading.
+const LAB_UNIT_RE = /\b(ng|pg|µg|μg|ug|mcg|nmol|pmol|µmol|umol|mmol|mIU|uIU|µIU|μIU|IU|mU|uU|µU|μU|U)\s*\/\s*(mL|dL|L)\b/i;
+
+// A prescription row is a table row, not a paragraph. Prose about hormone
+// therapy ("…natural progesterone… consult a provider for proper dosing")
+// carries the same words, so only short lines are read as medication rows.
+const MED_LINE_MAX = 200;
+
+const MED_HEADING_RE = /^[\s#*·•>\-–—|:]*((your|my|patient|current|active|home|discharge|outpatient|inpatient|new|continued|complete|updated|other)\s+)?(medications?|meds?\s+list|meds|prescriptions?|drug list|pharmacy|rx)\b/i;
+
+const OTHER_HEADING_RE = /^[\s#*·•>\-–—|:]*(lab(orator)?\w*|results?|chemistry|hematology|hormones?|endocrin\w*|panels?|patholog\w*|microbiolog\w*|urinalysis|serolog\w*|vitals?|vital signs|allerg\w*|problems?|diagnos\w*|assessment|plan|immuniz\w*|vaccin\w*|procedures?|imaging|radiolog\w*|histor\w*|orders?|encounters?|visits?|appointments?|instructions?|follow[\s-]?up|notes?|summary|signature|specimens?|patient|provider)\b/i;
+
+// A heading is a short line of words: "MEDICATIONS", or the column header
+// "Medication  SIG (Take, Route, Frequency, Duration)  Start Date". A line
+// carrying digits is a row of data, not the heading above it.
+function isHeadingLine(line, re) {
+  const t = (line || "").trim();
+  return t !== "" && t.length <= 120 && !/\d/.test(t) && re.test(t);
+}
+
+export function isMedicationLine(line) {
+  const t = (line || "").trim();
+  if (t === "" || t.length > MED_LINE_MAX) return false;
+  if (LAB_UNIT_RE.test(t)) return false;
+  return (
+    DOSE_STRENGTH_RE.test(t) || DOSE_PER_ML_RE.test(t) ||
+    DOSAGE_FORM_RE.test(t) || SIG_RE.test(t)
+  );
+}
+
+// Blanks out every medication row so the lab parser never sees one, keeping
+// the line count intact so a value that wrapped to the next line still
+// lines up with its label. Rows are dropped either because the line itself
+// reads as a prescription, or because it sits under a MEDICATIONS heading —
+// a list entry as bare as "Progesterone 200" has no vocabulary of its own.
+export function stripMedicationLines(text) {
+  const lines = (text || "").split(/\r\n|\r|\n/);
+  let inMeds = false;
+  let removed = 0;
+  const kept = lines.map((line) => {
+    if (isHeadingLine(line, MED_HEADING_RE)) { inMeds = true; return ""; }
+    if (isHeadingLine(line, OTHER_HEADING_RE)) { inMeds = false; return line; }
+    if (LAB_UNIT_RE.test(line)) { inMeds = false; return line; }
+    if (isMedicationLine(line) || (inMeds && line.trim() !== "")) { removed++; return ""; }
+    return line;
+  });
+  return { text: kept.join("\n"), removed };
+}
+
 // ── PDF TEXT LINE RECONSTRUCTION ────────────────────────────────────────
 // pdf.js returns positioned text fragments, not lines. Joining them with
 // spaces (the old behavior) collapses a whole page into one string, which
@@ -269,7 +339,12 @@ function lineMatchesAnyLabel(line) {
 }
 
 export function parseLabText(text) {
-  const t = normalizeOcrText(text || "");
+  // Medication rows go first: they name the same hormones as the results
+  // ("Progesterone 200 MG Capsule") and a dose read as a result is worse
+  // than no result at all. The date is read from what survives too — a
+  // prescription's start date is not the day the blood was drawn.
+  const { text: t, removed: medicationLines } =
+    stripMedicationLines(normalizeOcrText(text || ""));
   const lines = t.split(/\r\n|\r|\n/);
   const values = {};
 
@@ -308,7 +383,7 @@ export function parseLabText(text) {
     });
   });
 
-  return { values, date: extractReportDate(t) };
+  return { values, date: extractReportDate(t), medicationLines };
 }
 
 // ── REPORT DATE DETECTION ───────────────────────────────────────────────
