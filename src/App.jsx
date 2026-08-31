@@ -328,6 +328,23 @@ async function storeDelete(id) {
   await storeSaveAll(all.filter((v) => v.id !== id));
 }
 async function storeClear() { await storeSaveAll([]); }
+// Renames every visit currently labeled `oldLabel` to `newLabel` in one
+// read + single write. Returns how many visits were touched, so callers
+// can no-op silently on a stale/duplicate call (e.g. a rename already
+// applied). If newLabel collides with an existing different cycle, those
+// visits merge under the one label — the same outcome as if someone had
+// typed a matching cycle label by hand.
+async function storeRenameCycle(oldLabel, newLabel) {
+  const all = await storeGetAll();
+  let count = 0;
+  const renamed = all.map((v) => {
+    if (v.cycleLabel !== oldLabel) return v;
+    count += 1;
+    return { ...v, cycleLabel: newLabel };
+  });
+  if (count > 0) await storeSaveAll(renamed);
+  return count;
+}
 
 // Tiny separate record for profile info (currently just age) that drives
 // age-banded reference ranges. Kept apart from the visits array since it's
@@ -966,11 +983,18 @@ function ReserveChart({ visits, cycleColors, cyclesToShow, ageInfo }) {
 }
 
 // ── CYCLE FILTER (button + popover) ─────────────────────────────────────
-function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, cycleDateRanges, selected, onToggle, onSelectAll, onClearAll }) {
+function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, cycleDateRanges, selected, onToggle, onSelectAll, onClearAll, onRename }) {
   const [open, setOpen] = useState(false);
+  const [editingCycle, setEditingCycle] = useState(null);
+  const [editValue, setEditValue] = useState("");
   const allSelected = cycleLabels.every((c) => selected.has(c));
   const noneSelected = selected.size === 0;
   const summary = allSelected ? "All cycles" : noneSelected ? "No cycles" : `${selected.size} of ${cycleLabels.length} cycles`;
+
+  // Closing the popover (backdrop click, re-toggling the button, or the
+  // list simply re-rendering without this cycle any more) should always
+  // drop any in-progress rename rather than leaving it live for next open.
+  useEffect(() => { if (!open) setEditingCycle(null); }, [open]);
 
   if (cycleLabels.length === 0) return null;
 
@@ -997,21 +1021,57 @@ function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, cycleDateRa
                 <button onClick={onClearAll} disabled={noneSelected} style={{ border: "none", background: "none", padding: 0, fontSize: 11.5, fontWeight: 700, color: noneSelected ? "#C8C2B4" : "#8A8272", cursor: noneSelected ? "default" : "pointer" }}>None</button>
               </div>
             </div>
-            <div style={{ display: "grid", gap: 1 }}>
+            <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 1 }}>
               {cycleLabels.map((c) => {
                 const active = selected.has(c);
+                const isEditing = editingCycle === c;
+                const commitEdit = () => {
+                  const trimmed = editValue.trim();
+                  setEditingCycle(null);
+                  if (trimmed && trimmed !== c) onRename(c, trimmed);
+                };
+                const startEdit = (e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  setEditValue(c);
+                  setEditingCycle(c);
+                };
                 return (
-                  <label key={c} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 6px", borderRadius: 5, cursor: "pointer", background: active ? "#F3F1EA" : "transparent" }}>
-                    <input type="checkbox" checked={active} onChange={() => onToggle(c)} style={{ width: 14, height: 14, accentColor: cycleColors[c], cursor: "pointer", flexShrink: 0 }} />
-                    <span style={{ width: 10, height: 10, borderRadius: "50%", background: cycleColors[c], display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
-                      <span style={{ fontSize: 12.5, color: ink, lineHeight: 1.4 }}>{c}</span>
-                      {cycleDateRanges && cycleDateRanges[c] && (
-                        <span style={{ fontSize: 10, color: "#9A8E7F" }}>{formatDateRange(cycleDateRanges[c])}</span>
+                  <div key={c} style={{ display: "flex", alignItems: "center", gap: 6, padding: "7px 6px", borderRadius: 5, background: active ? "#F3F1EA" : "transparent" }}>
+                    <label style={{ display: "flex", alignItems: "center", gap: 9, cursor: "pointer", flex: 1, minWidth: 0 }}>
+                      <input type="checkbox" checked={active} onChange={() => onToggle(c)} style={{ width: 14, height: 14, accentColor: cycleColors[c], cursor: "pointer", flexShrink: 0 }} />
+                      <span style={{ width: 10, height: 10, borderRadius: "50%", background: cycleColors[c], display: "inline-block", flexShrink: 0 }} />
+                      {isEditing ? (
+                        <input
+                          type="text"
+                          value={editValue}
+                          autoFocus
+                          onClick={(e) => e.stopPropagation()}
+                          onChange={(e) => setEditValue(e.target.value)}
+                          onBlur={commitEdit}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") { e.preventDefault(); commitEdit(); }
+                            else if (e.key === "Escape") { e.preventDefault(); setEditValue(c); setEditingCycle(null); }
+                          }}
+                          style={{ flex: 1, minWidth: 0, fontSize: 12.5, padding: "3px 6px", border: `1px solid ${sageDeep}`, borderRadius: 4, fontFamily: "inherit", color: ink, background: paper }}
+                        />
+                      ) : (
+                        <span style={{ display: "flex", flexDirection: "column", gap: 1, minWidth: 0 }}>
+                          <span style={{ fontSize: 12.5, color: ink, lineHeight: 1.4, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{c}</span>
+                          {cycleDateRanges && cycleDateRanges[c] && (
+                            <span style={{ fontSize: 10, color: "#9A8E7F" }}>{formatDateRange(cycleDateRanges[c])}</span>
+                          )}
+                        </span>
                       )}
-                    </span>
-                    <span style={{ fontSize: 10.5, color: "#9A8E7F", marginLeft: "auto", whiteSpace: "nowrap" }}>{visitCounts[c] || 0} visit{(visitCounts[c] || 0) === 1 ? "" : "s"}</span>
-                  </label>
+                    </label>
+                    {!isEditing && (
+                      <>
+                        <span style={{ fontSize: 10.5, color: "#9A8E7F", whiteSpace: "nowrap" }}>{visitCounts[c] || 0} visit{(visitCounts[c] || 0) === 1 ? "" : "s"}</span>
+                        <button onClick={startEdit} title={`Rename "${c}"`} aria-label={`Rename ${c}`}
+                          style={{ border: "none", background: "none", color: "#8A8272", cursor: "pointer", fontSize: 12.5, padding: "3px 2px", flexShrink: 0, lineHeight: 1 }}>✎</button>
+                      </>
+                    )}
+                  </div>
                 );
               })}
             </div>
@@ -1228,7 +1288,7 @@ function SectionDivider({ label }) {
 }
 
 // ── DASHBOARD SECTION ─────────────────────────────────────────────────────
-function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
+function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycle }) {
   const [selectedCycles, setSelectedCycles] = useState(() => new Set());
   const seenCyclesRef = useRef(new Set());
 
@@ -1276,6 +1336,23 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
   const selectAllCycles = () => setSelectedCycles(new Set(cycleLabels));
   const clearAllCycles = () => setSelectedCycles(new Set());
 
+  // Renaming persists via the parent (it owns storage), but the
+  // selected/seen bookkeeping lives here — carry the old label's
+  // selection state over to the new name so a hidden cycle doesn't
+  // silently reappear just because it was renamed, and so the "new
+  // cycle defaults to selected" effect above doesn't double-add it.
+  const handleRenameCycle = (oldLabel, newLabel) => {
+    setSelectedCycles((prev) => {
+      if (!prev.has(oldLabel)) return prev;
+      const next = new Set(prev);
+      next.delete(oldLabel);
+      next.add(newLabel);
+      return next;
+    });
+    seenCyclesRef.current.add(newLabel);
+    onRenameCycle(oldLabel, newLabel);
+  };
+
   const shown = cycleLabels.filter((c) => selectedCycles.has(c));
 
   if (visits.length === 0) {
@@ -1300,7 +1377,7 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
       </div>
 
       <div style={{ margin: "12px 0 6px", display: "flex", justifyContent: "center" }}>
-        <CyclePopoverFilter cycleLabels={cycleLabels} cycleColors={cycleColors} visitCounts={visitCounts} cycleDateRanges={cycleDateRanges} selected={selectedCycles} onToggle={toggleCycle} onSelectAll={selectAllCycles} onClearAll={clearAllCycles} />
+        <CyclePopoverFilter cycleLabels={cycleLabels} cycleColors={cycleColors} visitCounts={visitCounts} cycleDateRanges={cycleDateRanges} selected={selectedCycles} onToggle={toggleCycle} onSelectAll={selectAllCycles} onClearAll={clearAllCycles} onRename={handleRenameCycle} />
       </div>
 
       {/* Cycle date legend */}
@@ -1506,6 +1583,16 @@ export default function LocalFertilityTracker() {
     } catch (err) { setError("Couldn't load fake data: " + err.message); }
   };
 
+  const handleRenameCycle = async (oldLabel, newLabel) => {
+    try {
+      const count = await storeRenameCycle(oldLabel, newLabel);
+      if (count === 0) return; // already renamed — e.g. a duplicate commit from blur+Enter
+      setStatus(`Renamed "${oldLabel}" to "${newLabel}" (${count} visit${count === 1 ? "" : "s"}).`);
+      setError("");
+      refresh();
+    } catch (err) { setError("Couldn't rename that cycle: " + err.message); }
+  };
+
   if (!ready) return null;
 
   const handleSmartImportRows = (rows) => {
@@ -1574,7 +1661,7 @@ export default function LocalFertilityTracker() {
             <button onClick={requestClearAll} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: "none", color: rust, fontSize: 12.5, cursor: "pointer" }}>Clear all local data</button>
           </div>
 
-          <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} />
+          <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} onRenameCycle={handleRenameCycle} />
         </div>
 
         <DisclaimerFooter />
