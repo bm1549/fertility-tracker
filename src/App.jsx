@@ -50,21 +50,36 @@ const PHASES = [
 ];
 
 // ── FIELD METADATA (shared by entry grid, saved table, and charts) ──────
+// `full` spells out what the abbreviation actually stands for — table
+// headers and the abbreviation legend below both read from it, so every
+// place PGN/AMH/etc. appears is one hover or one glance from its full name.
 const HORMONE_FIELDS = [
-  { key: "fsh",      label: "FSH",          short: "FSH",     unit: "mIU/mL" },
-  { key: "lh",       label: "LH",           short: "LH",      unit: "mIU/mL" },
-  { key: "e2",       label: "Estradiol",    short: "E2",      unit: "pg/mL" },
-  { key: "pgn",      label: "Progesterone", short: "PGN",     unit: "ng/mL" },
-  { key: "endo",     label: "Endometrium",  short: "Endo",    unit: "mm" },
-  { key: "follicle", label: "Lead follicle",short: "Follic.", unit: "mm" },
-  { key: "afcR",     label: "AFC (right)",  short: "AFC R",   unit: "count" },
-  { key: "afcL",     label: "AFC (left)",   short: "AFC L",   unit: "count" },
-  { key: "amh",      label: "AMH",          short: "AMH",     unit: "ng/mL" },
-  { key: "tsh",      label: "TSH",          short: "TSH",     unit: "uIU/mL" },
+  { key: "fsh",      label: "FSH",          short: "FSH",     unit: "mIU/mL", full: "Follicle-Stimulating Hormone" },
+  { key: "lh",       label: "LH",           short: "LH",      unit: "mIU/mL", full: "Luteinizing Hormone" },
+  { key: "e2",       label: "Estradiol",    short: "E2",      unit: "pg/mL",  full: "Estradiol" },
+  { key: "pgn",      label: "Progesterone", short: "PGN",     unit: "ng/mL",  full: "Progesterone" },
+  { key: "endo",     label: "Endometrium",  short: "Endo",    unit: "mm",     full: "Endometrial thickness" },
+  { key: "follicle", label: "Lead follicle",short: "Follic.", unit: "mm",     full: "Lead follicle size" },
+  { key: "afcR",     label: "AFC (right)",  short: "AFC R",   unit: "count",  full: "Antral Follicle Count — right ovary" },
+  { key: "afcL",     label: "AFC (left)",   short: "AFC L",   unit: "count",  full: "Antral Follicle Count — left ovary" },
+  { key: "amh",      label: "AMH",          short: "AMH",     unit: "ng/mL",  full: "Anti-Müllerian Hormone" },
+  { key: "tsh",      label: "TSH",          short: "TSH",     unit: "uIU/mL", full: "Thyroid-Stimulating Hormone" },
 ];
 
 const FIELD_LABELS_SHORT = { date: "Date", cycleLabel: "Cycle", cycleDay: "Day", notes: "Notes" };
 HORMONE_FIELDS.forEach((h) => { FIELD_LABELS_SHORT[h.key] = h.short; });
+
+// Hover-title text for each table header, and a plain-language legend
+// spelling every abbreviation out once. Both are derived from `full`
+// above so there's one source of truth for what each abbreviation means.
+const FIELD_TITLES = {
+  date: "Visit date (YYYY-MM-DD)",
+  cycleLabel: "Your label for this cycle, e.g. “Cycle 1”",
+  cycleDay: "Day of the cycle — day 1 is the first day of your period",
+  notes: "Free-text notes",
+};
+HORMONE_FIELDS.forEach((h) => { FIELD_TITLES[h.key] = h.unit === "count" ? h.full : `${h.full} (${h.unit})`; });
+const HORMONE_ABBREV_LEGEND = HORMONE_FIELDS.map((h) => `${h.short} = ${h.full}`).join(" · ");
 
 const EMPTY_DRAFT_FIELDS = { date: "", cycleLabel: "", cycleDay: "", notes: "" };
 HORMONE_FIELDS.forEach((h) => { EMPTY_DRAFT_FIELDS[h.key] = ""; });
@@ -194,7 +209,7 @@ const HORMONE_GUIDE = {
     color: amber, label: "Ovarian reserve",
     question: "What do AMH, AFC, and TSH mean for ovarian reserve, and how can you support it?",
     what: "Ovarian reserve describes the quantity (not quality) of eggs remaining, estimated with three complementary markers: AMH (Anti-Müllerian Hormone), a blood test reflecting the pool of small, growing follicles, stable at any point in the cycle; AFC (Antral Follicle Count), a same-cycle ultrasound count of small follicles in both ovaries, typically done early-cycle; and TSH (thyroid-stimulating hormone), tracked as a fertility co-factor since thyroid dysfunction can independently affect ovulation and early pregnancy.",
-    fertility: "AMH and AFC generally track together and both decline with age, but they can diverge cycle to cycle. Neither marker predicts egg quality or the chance of natural conception directly; they mainly inform how an ovary is likely to respond to stimulation medication. A 'diminished ovarian reserve' diagnosis based on borderline-low AMH/AFC generally means a somewhat reduced but not necessarily poor response to stimulation is expected — it does not mean pregnancy isn't possible. TSH above 2.5 uIU/mL is a commonly used (though debated) TTC-specific target, stricter than the general lab reference range.",
+    fertility: "AMH and AFC generally track together and both decline with age, but they can diverge cycle to cycle. Neither marker predicts egg quality or the chance of natural conception directly; they mainly inform how an ovary is likely to respond to stimulation medication. A 'diminished ovarian reserve' (DOR) diagnosis based on borderline-low AMH/AFC generally means a somewhat reduced but not necessarily poor response to stimulation is expected — it does not mean pregnancy isn't possible. TSH above 2.5 uIU/mL is a commonly used (though debated) TTC-specific target, stricter than the general lab reference range.",
     optimal: [
       { phase: "AMH (any cycle day)", range: "≥1.5 ng/mL", note: "<1.0 ng/mL is a DOR concern" },
       { phase: "AFC (early cycle, day 2–5)", range: "10–20 follicles", note: "7–9 = low-normal; <7 = DOR" },
@@ -556,7 +571,7 @@ function SpreadsheetGrid({ rows, onChangeCell, onPasteBlock, onRemoveRow, onDupl
           <thead>
             <tr style={{ background: paper }}>
               {COLUMN_ORDER.map((k) => (
-                <th key={k} style={{ textAlign: "left", padding: "7px 6px", color: "#6B6456", fontWeight: 700, fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${hair}`, whiteSpace: "nowrap" }}>{FIELD_LABELS_SHORT[k]}</th>
+                <th key={k} title={FIELD_TITLES[k]} style={{ textAlign: "left", padding: "7px 6px", color: "#6B6456", fontWeight: 700, fontSize: 9.5, textTransform: "uppercase", letterSpacing: "0.04em", borderBottom: `1px solid ${hair}`, whiteSpace: "nowrap", cursor: "help" }}>{FIELD_LABELS_SHORT[k]}</th>
               ))}
               <th style={{ borderBottom: `1px solid ${hair}` }} />
             </tr>
@@ -595,11 +610,24 @@ function SpreadsheetGrid({ rows, onChangeCell, onPasteBlock, onRemoveRow, onDupl
       <div style={{ fontSize: 11, color: "#9A8E7F", marginTop: 8, fontStyle: "italic" }}>
         Rows outlined in red have some data but are missing a date, cycle label, or cycle day. Rows shaded grey are edits to an already-saved visit.
       </div>
+      <div style={{ fontSize: 11, color: "#9A8E7F", marginTop: 4, fontStyle: "italic" }}>
+        {HORMONE_ABBREV_LEGEND} — hover any column header for a reminder.
+      </div>
     </div>
   );
 }
 
 // ── SAVED VISITS TABLE ───────────────────────────────────────────────────
+// [display label, hover title] pairs for this table's own header row — AFC
+// R/L merges afcR + afcL into one column, so it can't reuse FIELD_TITLES
+// key-for-key like SpreadsheetGrid's headers do.
+const VISIT_TABLE_HEADERS = [
+  ["Date", FIELD_TITLES.date], ["Cycle", FIELD_TITLES.cycleLabel], ["Day", FIELD_TITLES.cycleDay],
+  ["FSH", FIELD_TITLES.fsh], ["LH", FIELD_TITLES.lh], ["E2", FIELD_TITLES.e2], ["PGN", FIELD_TITLES.pgn],
+  ["Endo", FIELD_TITLES.endo], ["Follic.", FIELD_TITLES.follicle],
+  ["AFC R/L", "Antral Follicle Count — right / left ovary (count)"],
+  ["AMH", FIELD_TITLES.amh], ["TSH", FIELD_TITLES.tsh], ["", ""],
+];
 function VisitTable({ visits, onEdit, onDelete }) {
   if (visits.length === 0) {
     return <div style={{ border: `1px dashed ${hair}`, borderRadius: 6, padding: "28px 18px", textAlign: "center", color: "#8A8272", fontSize: 13 }}>No visits saved yet. Paste rows above, or add one by hand, to get started.</div>;
@@ -609,8 +637,8 @@ function VisitTable({ visits, onEdit, onDelete }) {
       <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 12 }}>
         <thead>
           <tr style={{ background: paper }}>
-            {["Date", "Cycle", "Day", "FSH", "LH", "E2", "PGN", "Endo", "Follic.", "AFC R/L", "AMH", "TSH", ""].map((h) => (
-              <th key={h} style={{ textAlign: "left", padding: "7px 8px", color: "#6B6456", fontWeight: 700, fontSize: 9.5, textTransform: "uppercase", borderBottom: `1px solid ${hair}` }}>{h}</th>
+            {VISIT_TABLE_HEADERS.map(([label, title]) => (
+              <th key={label || "actions"} title={title || undefined} style={{ textAlign: "left", padding: "7px 8px", color: "#6B6456", fontWeight: 700, fontSize: 9.5, textTransform: "uppercase", borderBottom: `1px solid ${hair}`, cursor: title ? "help" : "default" }}>{label}</th>
             ))}
           </tr>
         </thead>
@@ -900,28 +928,32 @@ function AFCByOvaryChart({ visits, selectedCycles, ageInfo }) {
         <h3 style={{ fontFamily: "Georgia,serif", fontSize: 19, color: ink, margin: 0 }}>AFC by ovary</h3>
         <span style={{ fontSize: 11, letterSpacing: "0.07em", textTransform: "uppercase", color: "#8A8272" }}>follicles</span>
       </div>
-      <p style={{ fontSize: 12, color: "#6B6456", margin: "2px 0 12px", lineHeight: 1.45 }}>Right and left ovary counts alongside the total, for every visit where a count was recorded. Threshold lines reflect age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}.</p>
+      <p style={{ fontSize: 12, color: "#6B6456", margin: "2px 0 12px", lineHeight: 1.45 }}>Right and left ovary counts stacked to show the total, for every visit where a count was recorded. Threshold lines reflect age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}.</p>
       {rows.length === 0 ? (
         <div style={{ padding: "36px 12px", textAlign: "center", color: "#8A8272", fontSize: 12.5, border: `1px dashed ${hair}`, borderRadius: 6 }}>
           No AFC counts recorded for the selected cycle(s).
         </div>
       ) : (
         <ResponsiveContainer width="100%" height={290}>
-          <BarChart data={rows} margin={{ top: 24, right: 20, left: 4, bottom: 14 }} barGap={4} barCategoryGap="22%">
+          <BarChart data={rows} margin={{ top: 24, right: 20, left: 4, bottom: 14 }} barCategoryGap="22%">
             <CartesianGrid stroke={hair} strokeDasharray="2 4" vertical={false} />
             <XAxis dataKey="date" tick={makeAFCTick(rows)} height={40} interval={0} />
             <YAxis domain={[0, yMax]} tick={{ fontSize: 11, fill: "#8A8272" }} width={36} />
             <ReferenceLine y={afc.optimalMin} stroke={sageDeep} strokeDasharray="3 3" strokeWidth={1} label={{ value: `total optimal ≥${afc.optimalMin}`, position: "insideTopLeft", fontSize: 9.5, fill: sageDeep }} />
             <ReferenceLine y={afc.dor} stroke={amber} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: `total DOR <${afc.dor}`, position: "insideTopRight", fontSize: 9.5, fill: amber }} />
             <Tooltip contentStyle={{ background: ink, border: "none", borderRadius: 4, fontSize: 12, padding: "8px 12px" }} labelStyle={{ color: "#aaa", fontSize: 11 }} itemStyle={{ color: "#fff" }}
-              formatter={(v, name) => [`${v} follicles`, name]} labelFormatter={(d, payload) => (payload && payload[0] ? `${d} · ${payload[0].payload.cycleLabel}` : d)} />
-            <Bar dataKey="r" name="Right ovary" fill={CYCLE_PALETTE[0]} radius={[3, 3, 0, 0]}><LabelList dataKey="r" position="top" style={{ fontSize: 10.5, fontWeight: 700, fill: CYCLE_PALETTE[0] }} /></Bar>
-            <Bar dataKey="l" name="Left ovary" fill={amber} radius={[3, 3, 0, 0]}><LabelList dataKey="l" position="top" style={{ fontSize: 10.5, fontWeight: 700, fill: amber }} /></Bar>
-            <Bar dataKey="total" name="Total" fill={sageDeep} radius={[3, 3, 0, 0]}><LabelList dataKey="total" position="top" style={{ fontSize: 10.5, fontWeight: 700, fill: sageDeep }} /></Bar>
+              formatter={(v, name) => [`${v} follicles`, name]} labelFormatter={(d, payload) => (payload && payload[0] ? `${d} · ${payload[0].payload.cycleLabel} · total ${payload[0].payload.total}` : d)} />
+            <Bar dataKey="r" name="Right ovary" stackId="afc" fill={CYCLE_PALETTE[0]}>
+              <LabelList dataKey="r" position="center" formatter={(v) => (v > 0 ? v : "")} style={{ fontSize: 10.5, fontWeight: 700, fill: "#fff" }} />
+            </Bar>
+            <Bar dataKey="l" name="Left ovary" stackId="afc" fill={amber} radius={[3, 3, 0, 0]}>
+              <LabelList dataKey="l" position="center" formatter={(v) => (v > 0 ? v : "")} style={{ fontSize: 10.5, fontWeight: 700, fill: "#fff" }} />
+              <LabelList dataKey="total" position="top" style={{ fontSize: 11, fontWeight: 700, fill: sageDeep }} />
+            </Bar>
           </BarChart>
         </ResponsiveContainer>
       )}
-      <div style={{ fontSize: 11, color: "#9A8E7F", marginTop: 8, fontStyle: "italic" }}>Bars show right (R), left (L), and total antral follicle counts for each visit where a count was recorded.</div>
+      <div style={{ fontSize: 11, color: "#9A8E7F", marginTop: 8, fontStyle: "italic" }}>Bars show right (R) and left (L) antral follicle counts stacked per visit, with the combined total labeled above each bar.</div>
     </div>
   );
 }
@@ -972,7 +1004,7 @@ function ReserveChart({ visits, cycleColors, cyclesToShow, ageInfo }) {
         <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 18px", lineHeight: 1.45 }}>AMH and TSH are shown by visit date since they're stable across the cycle — bars are colored and labeled by the cycle each visit belongs to, and only the cycle(s) selected above are shown. AFC is shown in the chart above (by ovary, per visit), and FSH — the third standard reserve marker — has its own chart further up. AMH's threshold reflects age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}; TSH's target doesn't shift with age.</p>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20 }}>
           <PointInTimeChart visits={visits} field="amh" label="AMH" unit="ng/mL" cycleColors={cycleColors} cyclesToShow={cyclesToShow}
-            band={{ y1: amh.optimalMin, y2: amh.typicalMax }} refLine={{ y: amh.dor, label: `DOR concern <${amh.dor}` }} yMax={amhYMax} />
+            band={{ y1: amh.optimalMin, y2: amhYMax }} refLine={{ y: amh.dor, label: `DOR concern <${amh.dor}` }} yMax={amhYMax} />
           <PointInTimeChart visits={visits} field="tsh" label="TSH" unit="uIU/mL" cycleColors={cycleColors} cyclesToShow={cyclesToShow}
             band={{ y1: 0.34, y2: 2.5 }} refLine={{ y: 2.5, label: "TTC target ≤2.5" }} yMax={4} />
         </div>
@@ -1428,7 +1460,7 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
       </div>
 
       <div style={{ marginTop: 20, padding: "12px 16px", background: "#EFECE3", borderLeft: `3px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.55 }}>
-        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. FSH, AMH, and AFC bands adjust to the age you enter above. The colour bar on each chart shows the three cycle phases (follicular, ovulatory, luteal). Expand the Hormone Guide beneath each chart for explanation and support tips.
+        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. <strong>DOR</strong> (seen on several reference lines) stands for <em>diminished ovarian reserve</em> — a lower-than-typical reading for your age, worth discussing with your doctor, not a diagnosis by itself. FSH, AMH, and AFC bands adjust to the age you enter above. The colour bar on each chart shows the three cycle phases (follicular, ovulatory, luteal). Expand the Hormone Guide beneath each chart for explanation and support tips.
       </div>
     </div>
   );
