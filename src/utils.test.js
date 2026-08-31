@@ -1,4 +1,5 @@
 import { describe, it, expect } from "vitest";
+import { readFileSync } from "node:fs";
 import {
   normalizeDate,
   formatDateShort,
@@ -9,7 +10,13 @@ import {
   parsePastedText,
   guessFieldForHeader,
   parseLabText,
+  normalizeOcrText,
+  reconstructPdfLines,
+  extractReportDate,
 } from "./utils.js";
+
+const fixture = (name) =>
+  readFileSync(new URL(`./__fixtures__/${name}`, import.meta.url), "utf8");
 
 // ── normalizeDate ───────────────────────────────────────────────────────
 describe("normalizeDate", () => {
@@ -344,11 +351,9 @@ describe("parseLabText", () => {
       expect(result.date).toBe("2026-08-15");
     });
 
-    it("detects month-name date format", () => {
+    it("detects month-name date format and converts to ISO", () => {
       const result = parseLabText("August 15, 2026. FSH: 5.2");
-      // normalizeDate won't convert this to ISO, it passes through
-      // The date extract pattern matches "August 15, 2026" and normalizeDate returns it as-is
-      expect(result.date).toBe("August 15, 2026");
+      expect(result.date).toBe("2026-08-15");
     });
 
     it("returns empty date when none found", () => {
@@ -381,5 +386,205 @@ describe("parseLabText", () => {
       expect(result.values.fsh).toBe("5.2");
       expect(result.values.lh).toBe("3.8");
     });
+  });
+
+  describe("reference-range and layout robustness", () => {
+    it("skips a reference range that comes before the value", () => {
+      const result = parseLabText("FSH 2.5-10.2 mIU/mL 5.2");
+      expect(result.values.fsh).toBe("5.2");
+    });
+
+    it("detects nothing on a line that only carries the reference range", () => {
+      // OCR often fails to read the value while the printed range survives;
+      // importing a range bound would silently fabricate a result.
+      const result = parseLabText("Estradiol 43-180 pg/mL Premeno-luteal");
+      expect(result.values.e2).toBeUndefined();
+    });
+
+    it("does not read a Pg/E2 ratio as an estradiol result", () => {
+      const text = "Estradiol 60 43-180 pg/mL\nRatio: Pg/E2 40 L (optimal 100-500)";
+      expect(parseLabText(text).values.e2).toBe("60");
+      expect(parseLabText("Ratio: Pg/E2 40 L").values.e2).toBeUndefined();
+      expect(parseLabText("Pg/E2 40").values.e2).toBeUndefined();
+    });
+
+    it("ignores value-column noise like zero-padded lab codes", () => {
+      // Labcorp-style row where OCR dropped the value: the trailing 01 is
+      // a lab code, not a TSH of 1.
+      const result = parseLabText("TSH uIU/mL 0.450 - 4.500 01");
+      expect(result.values.tsh).toBeUndefined();
+    });
+
+    it("rejects implausible numbers such as phone numbers and years", () => {
+      const brochure =
+        "Follicle stimulating hormone (FSH) regulates estradiol production. Call 800.878.3787";
+      expect(parseLabText(brochure).values.fsh).toBeUndefined();
+      expect(parseLabText("Estradiol was last tested in 2018").values.e2).toBeUndefined();
+    });
+
+    it("picks up a value that wrapped to the next line", () => {
+      const result = parseLabText("FSH\n5.2\nLH\n3.8");
+      expect(result.values.fsh).toBe("5.2");
+      expect(result.values.lh).toBe("3.8");
+    });
+
+    it("does not steal the next analyte's row as a wrapped value", () => {
+      const result = parseLabText("FSH\nLH: 3.8");
+      expect(result.values.fsh).toBeUndefined();
+      expect(result.values.lh).toBe("3.8");
+    });
+  });
+
+  describe("OCR artifacts", () => {
+    it("reads values through table gridlines OCR'd as pipes", () => {
+      expect(parseLabText("FSH | 5.2 | mIU/mL").values.fsh).toBe("5.2");
+    });
+
+    it("reads decimal points OCR'd as commas", () => {
+      expect(parseLabText("TSH: 1,82 uIU/mL").values.tsh).toBe("1.82");
+    });
+
+    it("recovers common label misreads", () => {
+      expect(parseLabText("F5H: 5.2 mIU/mL").values.fsh).toBe("5.2");
+      expect(parseLabText("SH 3.51 mIU/L").values.tsh).toBe("3.51");
+      expect(parseLabText("IH: 3.8 mIU/mL").values.lh).toBe("3.8");
+      expect(parseLabText("EZ 42 pg/mL").values.e2).toBe("42");
+    });
+  });
+});
+
+// ── normalizeOcrText ────────────────────────────────────────────────────
+describe("normalizeOcrText", () => {
+  it("replaces vertical bars with spaces", () => {
+    expect(normalizeOcrText("FSH | 5.2")).toBe("FSH   5.2");
+  });
+
+  it("fixes misread decimal commas but keeps thousands separators", () => {
+    expect(normalizeOcrText("TSH 1,82")).toBe("TSH 1.82");
+    expect(normalizeOcrText("E2 1,234 pg/mL")).toBe("E2 1234 pg/mL");
+  });
+
+  it("repairs label character confusions", () => {
+    expect(normalizeOcrText("F5H 5.2")).toBe("FSH 5.2");
+    expect(normalizeOcrText("T5H 1.8")).toBe("TSH 1.8");
+    expect(normalizeOcrText("SH 3.51")).toBe("TSH 3.51");
+    expect(normalizeOcrText("1H 3.8")).toBe("LH 3.8");
+    expect(normalizeOcrText("Estradlol 60")).toBe("estradiol 60");
+  });
+
+  it("only rewrites ambiguous tokens when a number follows", () => {
+    expect(normalizeOcrText("SHBG 88 nmol/L")).toBe("SHBG 88 nmol/L");
+    expect(normalizeOcrText("the SH sound")).toBe("the SH sound");
+  });
+
+  it("leaves clean text untouched", () => {
+    const clean = "FSH: 5.2 mIU/mL Reference: 2.5-10.2";
+    expect(normalizeOcrText(clean)).toBe(clean);
+  });
+
+  it("handles null/empty", () => {
+    expect(normalizeOcrText("")).toBe("");
+    expect(normalizeOcrText(null)).toBe("");
+  });
+});
+
+// ── reconstructPdfLines ─────────────────────────────────────────────────
+describe("reconstructPdfLines", () => {
+  const item = (str, x, y) => ({ str, transform: [1, 0, 0, 1, x, y] });
+
+  it("groups fragments sharing a Y coordinate into one line, left to right", () => {
+    const items = [item("14.4", 200, 500), item("FSH", 40, 500), item("2.4-9.3", 320, 500)];
+    expect(reconstructPdfLines(items)).toBe("FSH 14.4 2.4-9.3");
+  });
+
+  it("orders lines top of page first (descending Y)", () => {
+    const items = [item("LH 11.8", 40, 480), item("FSH 14.4", 40, 500)];
+    expect(reconstructPdfLines(items)).toBe("FSH 14.4\nLH 11.8");
+  });
+
+  it("tolerates small Y jitter within a line", () => {
+    const items = [item("FSH", 40, 500), item("14.4", 200, 501.5)];
+    expect(reconstructPdfLines(items)).toBe("FSH 14.4");
+  });
+
+  it("drops empty fragments and items without positions", () => {
+    const items = [item("FSH 14.4", 40, 500), item("   ", 100, 500), { str: "stray" }];
+    expect(reconstructPdfLines(items)).toBe("FSH 14.4");
+  });
+});
+
+// ── extractReportDate ───────────────────────────────────────────────────
+describe("extractReportDate", () => {
+  it("never uses a date of birth as the report date", () => {
+    expect(extractReportDate("DOB: 03/22/1988\nCollected: 08/15/2026")).toBe("2026-08-15");
+    expect(extractReportDate("Patient DOB 5/17/1980")).toBe("");
+  });
+
+  it("prefers collection dates over report/printed dates", () => {
+    const text = "Report Date: 10/04/2026\nCollected: 09/22/2026";
+    expect(extractReportDate(text)).toBe("2026-09-22");
+  });
+
+  it("prefers an unlabeled date over a report date", () => {
+    expect(extractReportDate("Printed 10/23/2026 Visit of 09/09/2026")).toBe("2026-09-09");
+  });
+
+  it("falls back to a report date when nothing better exists", () => {
+    expect(extractReportDate("Reported: 10/04/2026")).toBe("2026-10-04");
+  });
+
+  it("skips impossible calendar dates", () => {
+    expect(extractReportDate("code 55/55/2026, drawn 08/15/2026")).toBe("2026-08-15");
+  });
+});
+
+// ── real report fixtures ────────────────────────────────────────────────
+// Captured output of the app's actual extraction pipeline (pdfjs text
+// extraction, tesseract.js OCR) over published sample lab reports — see
+// src/__fixtures__/README.md for sources and how to regenerate.
+describe("real report fixtures", () => {
+  const VALUE_KEYS = ["fsh", "lh", "e2", "pgn", "tsh", "amh"];
+  const valuesOf = (text) => {
+    const { values } = parseLabText(text);
+    const out = {};
+    VALUE_KEYS.forEach((k) => { if (values[k] !== undefined) out[k] = values[k]; });
+    return out;
+  };
+
+  it("ZRT fertility panel PDF (line-reconstructed text layer)", () => {
+    const text = fixture("zrt-fertility-report.pdf-lines.txt");
+    expect(valuesOf(text)).toEqual({ fsh: "14.4", lh: "11.8", e2: "60", pgn: "2.4", tsh: "1.8" });
+    // 5/17/1980 (DOB) and 10/23/2018 (print stamp) must not win.
+    expect(parseLabText(text).date).toBe("2018-09-28");
+  });
+
+  it("ZRT fertility panel PDF (legacy space-joined text)", () => {
+    const text = fixture("zrt-fertility-report.pdf-joined.txt");
+    expect(valuesOf(text)).toEqual({ fsh: "14.4", lh: "11.8", e2: "60", pgn: "2.4", tsh: "1.8" });
+    expect(parseLabText(text).date).toBe("2018-09-22");
+  });
+
+  it("ZRT fertility panel screenshot OCR where values are unreadable", () => {
+    // Tesseract only recovers the reference ranges; detecting nothing is
+    // the correct outcome (the old parser reported LH 1.6, E2 43, Pgn 3.3
+    // — all range bounds).
+    const text = fixture("zrt-fertility-report.ocr.txt");
+    expect(valuesOf(text)).toEqual({});
+  });
+
+  it("Labcorp-style thyroid panel screenshots", () => {
+    expect(valuesOf(fixture("thyroid-labcorp-basic.ocr.txt"))).toEqual({ tsh: "1.070" });
+    expect(valuesOf(fixture("thyroid-labcorp-expanded.ocr.txt"))).toEqual({ tsh: "2.680" });
+  });
+
+  it("Quest-style thyroid panel screenshots", () => {
+    expect(valuesOf(fixture("thyroid-quest-basic.ocr.txt"))).toEqual({ tsh: "1.70" });
+    // OCR read "TSH" as "SH" in this capture; normalization recovers it.
+    expect(valuesOf(fixture("thyroid-quest-expanded.ocr.txt"))).toEqual({ tsh: "3.51" });
+  });
+
+  it("hormone brochure with no results detects nothing", () => {
+    expect(valuesOf(fixture("brochure-no-results.pdf-joined.txt"))).toEqual({});
+    expect(valuesOf(fixture("brochure-no-results.ocr.txt"))).toEqual({});
   });
 });

@@ -1,0 +1,13 @@
+Test Name In Range Out Of Range Reference Range Lab
+TSH 1.70 mIv/L EY
+Reference Range
+> or = 20 Years 0.40-4.50
+Pregnancy Ranges
+First trimester 0.26-2.66
+Second trimester  0.55-2.73
+Third trimester  0.43-2.91 E
+THYROID PANEL en
+T3 UPTAKE 28 22-35 &
+T4 (THYROXINE), TOTAL 8.5 4.5-12.0 mcg/dL
+FREE T4 INDEX (T7) 2.4 1.4-3.8
+4

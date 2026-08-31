@@ -6,7 +6,7 @@ import {
 import {
   normalizeDate, formatDateShort, computeCycleDateRanges, formatDateRange,
   extractNumber, splitLine, parsePastedText, guessFieldForHeader,
-  LAB_PATTERNS, parseLabText,
+  LAB_PATTERNS, parseLabText, reconstructPdfLines,
 } from "./utils.js";
 
 // ── LAZY LOADERS FOR PDF + OCR ─────────────────────────────────────────
@@ -19,7 +19,10 @@ async function extractPdfText(file) {
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
     const content = await page.getTextContent();
-    text += content.items.map((it) => it.str).join(" ") + "\n";
+    // Rebuild visual lines from positioned fragments so table rows stay
+    // intact — joining everything with spaces flattened each page into
+    // one line and let values drift away from their labels.
+    text += reconstructPdfLines(content.items) + "\n";
   }
   return text;
 }
