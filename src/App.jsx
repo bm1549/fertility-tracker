@@ -1266,7 +1266,7 @@ const HORMONE_META = {
 };
 
 // ── SMART IMPORT (PDF / IMAGE → DRAFT ROWS) ────────────────────────────
-function SmartImport({ onImportRows }) {
+function SmartImport({ onImportRows, age, ageInfo, onAgeChange }) {
   const [file, setFile] = useState(null);
   const [extractedText, setExtractedText] = useState("");
   const [parsed, setParsed] = useState(null);
@@ -1321,7 +1321,21 @@ function SmartImport({ onImportRows }) {
 
   return (
     <div style={{ background: panel, border: `1px solid ${hair}`, borderRadius: 6, padding: "18px 20px" }}>
-      <h3 style={{ fontFamily: "Georgia,serif", fontSize: 16, color: ink, margin: "0 0 6px" }}>Import from PDF or image</h3>
+      <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 16, flexWrap: "wrap", margin: "0 0 6px" }}>
+        <h3 style={{ fontFamily: "Georgia,serif", fontSize: 16, color: ink, margin: 0 }}>Import from PDF or image</h3>
+        {/* Age lives with the entry controls rather than the page header — it's
+            a value you type in alongside your results, and it retunes the
+            FSH/AMH/AFC reference ranges used by every chart below. */}
+        <div style={{ display: "flex", alignItems: "center", gap: 7 }}>
+          <label htmlFor="user-age" style={{ fontSize: 11.5, fontWeight: 700, color: ink }}>Age</label>
+          <input id="user-age" type="text" inputMode="numeric" value={age}
+            onChange={(e) => onAgeChange(e.target.value)} placeholder="e.g. 34"
+            style={{ width: 48, padding: "5px 8px", borderRadius: 20, border: `1px solid ${hair}`, fontSize: 12.5, background: paper, color: ink, textAlign: "center" }} />
+          <span style={{ fontSize: 11, color: "#8A8272" }}>
+            {age ? `Ranges tuned for ${ageInfo.band.label}` : "Tunes FSH/AMH/AFC ranges"}
+          </span>
+        </div>
+      </div>
       <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 14px", lineHeight: 1.5 }}>
         Upload a lab report PDF or a screenshot/photo of your results. The app extracts text and detects hormone values automatically — review before saving.
       </p>
@@ -1884,21 +1898,12 @@ export default function LocalFertilityTracker() {
                 Load fake data to explore
               </button>
             )}
-            <div style={{ display: "flex", alignItems: "center", gap: 7, marginLeft: 4 }}>
-              <label htmlFor="user-age" style={{ fontSize: 11.5, fontWeight: 700, color: ink }}>Age</label>
-              <input id="user-age" type="text" inputMode="numeric" value={age}
-                onChange={(e) => handleAgeChange(e.target.value)} placeholder="e.g. 34"
-                style={{ width: 48, padding: "5px 8px", borderRadius: 20, border: `1px solid ${hair}`, fontSize: 12.5, background: panel, color: ink, textAlign: "center" }} />
-              <span style={{ fontSize: 11, color: "#8A8272" }}>
-                {age ? `Ranges tuned for ${ageInfo.band.label}` : "Tunes FSH/AMH/AFC ranges"}
-              </span>
-            </div>
           </div>
         </div>
 
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
           {/* ─── SMART IMPORT ──────────────────────────────────── */}
-          <SmartImport onImportRows={handleSmartImportRows} />
+          <SmartImport onImportRows={handleSmartImportRows} age={age} ageInfo={ageInfo} onAgeChange={handleAgeChange} />
 
           {/* ─── MANUAL ENTRY GRID ────────────────────────────── */}
           <SpreadsheetGrid rows={draftRows} onChangeCell={changeDraftCell} onPasteBlock={pasteBlock} onRemoveRow={removeDraftRow} onDuplicateRow={duplicateDraftRow} onAddRows={addRows} onSaveRow={saveRow} onSaveAll={saveAllValid} />
