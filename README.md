@@ -1,9 +1,20 @@
 # Local Fertility Lab Tracker
 
-A single-page React app for tracking fertility lab visits (FSH, LH, estradiol,
-progesterone, endometrial thickness, follicle size, AFC, AMH, TSH) across
-cycles — with a spreadsheet-style entry grid, per-cycle trend charts against
-evidence-based reference ranges, and a plain-language guide for each hormone.
+A single-page React app for tracking fertility monitoring visits across cycles
+— with a spreadsheet-style entry grid, per-cycle trend charts against
+evidence-based reference ranges, and a plain-language guide for each marker.
+
+**Per visit:** FSH, LH, estradiol, progesterone, endometrial thickness, lead
+follicle size, AFC (per ovary), AMH, TSH, blood pressure and heart rate.
+
+**Per cycle:** the treatment context that makes those numbers readable —
+cycle type (natural, letrozole/Clomid, gonadotropin IUI, IVF stim, FET prep),
+medications and doses with the days they ran, trigger shot type/date/time,
+luteal support, key event dates (positive OPK, IUI, retrieval, transfer), and
+outcomes (eggs retrieved → mature → fertilized → blastocysts, PGT-A results,
+serial beta hCG with doubling time, and how the cycle ended). A cycle
+comparison table puts every cycle side by side, and the charts flag when a
+cycle on medication is being read against natural-cycle reference bands.
 
 All data stays in your browser's `localStorage` on your own device. Nothing
 is ever sent to a server — there's no account and no backend.

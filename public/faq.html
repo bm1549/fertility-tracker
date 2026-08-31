@@ -334,10 +334,11 @@
     <div class="faq-item">
       <h2 class="faq-q">Where is my data stored?</h2>
       <p class="faq-a">
-        Everything — your visit records, hormone values, and age — lives in your browser's <strong>localStorage</strong>, a small database built into every modern browser. The app uses two keys:
+        Everything — your visit records, lab and vitals values, cycle treatment details, and age — lives in your browser's <strong>localStorage</strong>, a small database built into every modern browser. The app uses three keys:
       </p>
       <p class="faq-a">
         <code>fertility-tracker:visits</code> holds your saved visits as a JSON array.<br>
+        <code>fertility-tracker:cycles</code> holds per-cycle treatment details — protocol, medications, trigger, event dates, and outcomes.<br>
         <code>fertility-tracker:profile</code> holds your age (used for age-specific reference ranges).
       </p>
       <div class="callout callout-safe">
@@ -391,6 +392,9 @@
         <li>Transfer that file to your other device (email it to yourself, AirDrop, a USB drive — whatever works).</li>
         <li>On the new device, open the app and click <strong>Import backup</strong>, then select the file.</li>
       </ol>
+      <p class="faq-a">
+        A backup file contains both your visits and your per-cycle treatment details. Backup files downloaded from older versions of the app held visits only — those still import fine.
+      </p>
       <div class="callout">
         <strong>Keep in mind:</strong> This is a one-time copy, not a sync. Changes you make on one device after the transfer won't appear on the other. Repeat the export/import cycle whenever you want to update.
       </div>
@@ -404,13 +408,14 @@
         <strong>Delete individual visits</strong> — each row in the Saved Visits table has a delete button. One click removes that single record.
       </p>
       <p class="faq-a">
-        <strong>Delete everything</strong> — the app's "Clear all local data" button wipes every saved visit after a confirmation prompt. This cannot be undone.
+        <strong>Delete everything</strong> — the app's "Clear all local data" button wipes every saved visit and all cycle treatment details after a confirmation prompt. This cannot be undone.
       </p>
       <p class="faq-a">
-        For a complete wipe (visits <em>and</em> your stored age), open your browser's developer console and run:
+        For a complete wipe (visits, cycle treatment details, <em>and</em> your stored age), open your browser's developer console and run:
       </p>
       <div class="callout">
         <code>localStorage.removeItem("fertility-tracker:visits")</code><br>
+        <code>localStorage.removeItem("fertility-tracker:cycles")</code><br>
         <code>localStorage.removeItem("fertility-tracker:profile")</code>
       </div>
     </div>

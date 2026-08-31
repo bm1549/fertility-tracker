@@ -5,9 +5,21 @@ import {
 } from "recharts";
 import {
   normalizeDate, formatDateShort, computeCycleDateRanges, formatDateRange,
+  computeCycleStartDates, cycleDayForDate, addDays,
   extractNumber, splitLine, parsePastedText, guessFieldForHeader,
   LAB_PATTERNS, parseLabText,
 } from "./utils.js";
+import {
+  ink, paper, panel, hair, sage, sageDeep, amber, rust, muted, faint,
+  CYCLE_PALETTE, gridInputStyle, gridInputErrorStyle, smallBtn,
+} from "./theme.js";
+import {
+  CYCLE_EVENTS, cycleTypeInfo, isMedicatedCycle, emptyCycleRecord, normalizeCycleRecord,
+  storeGetCycles, storeSaveCycles, storePutCycle, storeRenameCycleRecord, storeClearCycles,
+} from "./cycles.js";
+import { CycleTreatmentSection, CycleComparisonTable } from "./CycleTracking.jsx";
+import { VitalsChart } from "./VitalsChart.jsx";
+import { makeDateCycleTick } from "./chartTicks.jsx";
 
 // ── LAZY LOADERS FOR PDF + OCR ─────────────────────────────────────────
 async function extractPdfText(file) {
@@ -31,16 +43,8 @@ async function extractImageText(file, onProgress) {
   return data.text;
 }
 
-// ── TOKENS ───────────────────────────────────────────────────────────────
-const ink      = "#1C2B3A";
-const paper    = "#F6F5F1";
-const panel    = "#FFFFFF";
-const hair     = "#D8D3C7";
-const sage     = "#7C9A82";
-const sageDeep = "#4F6D57";
-const amber    = "#C98A2B";
-const rust     = "#B5482F";
-const CYCLE_PALETTE = ["#3B5B7A", "#4F6D57", "#C98A2B", "#B5482F", "#7C6A9A", "#4A8A8C", "#9A6B4A"];
+// Design tokens now live in theme.js so the cycle-treatment and vitals
+// views draw from the same palette — see the import above.
 
 const DAY_MAX = 32;
 const PHASES = [
@@ -66,8 +70,20 @@ const HORMONE_FIELDS = [
   { key: "tsh",      label: "TSH",          short: "TSH",     unit: "uIU/mL", full: "Thyroid-Stimulating Hormone" },
 ];
 
+// Vitals taken at the same monitoring visits. Not hormones — they get no
+// cycle-day reference bands and no ovarian-reserve interpretation — but they
+// are recorded per visit exactly like the labs, so they share the grid, the
+// saved-visits table, and the paste/import path.
+const VITAL_FIELDS = [
+  { key: "bpSys", label: "Systolic BP",  short: "BP Sys", unit: "mmHg", full: "Blood pressure — systolic" },
+  { key: "bpDia", label: "Diastolic BP", short: "BP Dia", unit: "mmHg", full: "Blood pressure — diastolic" },
+  { key: "hr",    label: "Heart rate",   short: "HR",     unit: "bpm",  full: "Heart rate" },
+];
+// Everything captured per visit, in the order the grid shows it.
+const ENTRY_FIELDS = [...HORMONE_FIELDS, ...VITAL_FIELDS];
+
 const FIELD_LABELS_SHORT = { date: "Date", cycleLabel: "Cycle", cycleDay: "Day", notes: "Notes" };
-HORMONE_FIELDS.forEach((h) => { FIELD_LABELS_SHORT[h.key] = h.short; });
+ENTRY_FIELDS.forEach((h) => { FIELD_LABELS_SHORT[h.key] = h.short; });
 
 // Hover-title text for each table header, and a plain-language legend
 // spelling every abbreviation out once. Both are derived from `full`
@@ -78,11 +94,11 @@ const FIELD_TITLES = {
   cycleDay: "Day of the cycle — day 1 is the first day of your period",
   notes: "Free-text notes",
 };
-HORMONE_FIELDS.forEach((h) => { FIELD_TITLES[h.key] = h.unit === "count" ? h.full : `${h.full} (${h.unit})`; });
-const HORMONE_ABBREV_LEGEND = HORMONE_FIELDS.map((h) => `${h.short} = ${h.full}`).join(" · ");
+ENTRY_FIELDS.forEach((h) => { FIELD_TITLES[h.key] = h.unit === "count" ? h.full : `${h.full} (${h.unit})`; });
+const HORMONE_ABBREV_LEGEND = ENTRY_FIELDS.map((h) => `${h.short} = ${h.full}`).join(" · ");
 
 const EMPTY_DRAFT_FIELDS = { date: "", cycleLabel: "", cycleDay: "", notes: "" };
-HORMONE_FIELDS.forEach((h) => { EMPTY_DRAFT_FIELDS[h.key] = ""; });
+ENTRY_FIELDS.forEach((h) => { EMPTY_DRAFT_FIELDS[h.key] = ""; });
 
 // ── HORMONE GUIDE CONTENT ─────────────────────────────────────────────────
 const HORMONE_GUIDE = {
@@ -222,6 +238,23 @@ const HORMONE_GUIDE = {
       "If TSH is above the TTC target of 2.5, this is usually simple to correct with levothyroxine dose adjustment — worth flagging to the prescribing physician.",
       "Reserve markers don't change quickly — retesting more than once every few months rarely provides new information and can add unnecessary anxiety.",
       "Reserve numbers estimate egg quantity, not quality or natural conception odds — many people with DOR conceive naturally or with modest stimulation.",
+    ],
+  },
+  vitals: {
+    color: CYCLE_PALETTE[0], label: "Vitals",
+    question: "Why do blood pressure and heart rate get recorded at fertility visits?",
+    what: "Blood pressure and pulse are taken at monitoring visits as routine baseline observations. They aren't fertility hormones and they don't track the cycle the way estradiol or progesterone do — what they provide is a running baseline for the person being treated, recorded at the same appointments as the labs.",
+    fertility: "A pre-treatment blood pressure baseline matters for two reasons: several fertility medications and pregnancy itself affect blood pressure, and chronic hypertension before conception is one of the things an OB wants identified early because it raises the risk of preeclampsia. Heart rate is a general marker that can also reflect thyroid status — a persistently high resting pulse alongside a suppressed TSH is a combination worth mentioning to your doctor. During stimulation, a rising pulse together with bloating and rapid weight gain is among the symptoms clinics ask patients to report, since those can accompany ovarian hyperstimulation syndrome (OHSS).",
+    optimal: [
+      { phase: "Blood pressure (resting)", range: "<120/80 mmHg", note: "AHA 'normal'; 120–129 systolic = elevated" },
+      { phase: "Blood pressure — flag", range: "≥130/80 mmHg", note: "AHA stage 1 hypertension — worth raising with your doctor" },
+      { phase: "Resting heart rate", range: "60–100 bpm", note: "Wide normal range; athletes often sit below it" },
+    ],
+    tips: [
+      "Take readings the standard way when you can — seated, feet flat, arm supported, after a few minutes at rest. A reading taken right after rushing to an appointment usually runs high.",
+      "One high reading is not a diagnosis. Hypertension is diagnosed on repeated readings across separate occasions, which is exactly what a visit-by-visit log like this shows.",
+      "If you're on stimulation medication, report rapid weight gain, severe bloating, shortness of breath, or a markedly rising pulse to your clinic promptly — those are the symptoms OHSS monitoring is looking for.",
+      "Bring the trend, not one number, to appointments — a chart across visits is far more useful to a clinician than a single value.",
     ],
   },
 };
@@ -415,7 +448,10 @@ function generateFakeVisits() {
     let n = 0;
     const add = (day, fields, notes) => {
       n += 1;
-      visits.push({ id: `fake-${idx}-${n}-${Date.now()}`, date: mkDate(day), cycleLabel, cycleDay: day, notes: notes || "", ...fields });
+      // Vitals are taken at every monitoring visit, so every fake visit
+      // carries a plausible reading rather than only the lab-heavy ones.
+      const vitals = { bpSys: randInt(104, 126), bpDia: randInt(64, 82), hr: randInt(58, 88) };
+      visits.push({ id: `fake-${idx}-${n}-${Date.now()}`, date: mkDate(day), cycleLabel, cycleDay: day, notes: notes || "", ...vitals, ...fields });
     };
 
     add(2, {
@@ -442,12 +478,81 @@ function generateFakeVisits() {
   return visits;
 }
 
+// Treatment records for the fake visits above, so the cycle comparison and
+// the treatment cards have something to show in the preview. Deliberately a
+// realistic escalation — unmedicated, then oral + IUI, then a retrieval,
+// then a frozen transfer — since that's what makes the comparison table
+// legible as a comparison. Event dates are derived from the generated
+// visits, so they land on sensible cycle days whatever dates got rolled.
+function generateFakeCycles(visits) {
+  const starts = computeCycleStartDates(visits);
+  const onDay = (label, day) => (starts[label] ? addDays(starts[label], day - 1) : "");
+  const build = (label, spec) => {
+    const rec = emptyCycleRecord();
+    rec.cycleType = spec.cycleType;
+    rec.medications = (spec.medications || []).map((m, i) => ({ id: `fake-med-${label}-${i}`, ...m }));
+    rec.triggerType = spec.triggerType || "";
+    rec.triggerTime = spec.triggerTime || "";
+    rec.lutealSupport = spec.lutealSupport || "";
+    Object.entries(spec.eventDays || {}).forEach(([key, day]) => { rec.events[key] = onDay(label, day); });
+    rec.betas = (spec.betas || []).map((b, i) => ({ id: `fake-beta-${label}-${i}`, date: onDay(label, b.day), value: String(b.value) }));
+    Object.entries(spec.outcome || {}).forEach(([key, val]) => { rec.outcome[key] = String(val); });
+    rec.notes = spec.notes || "";
+    return rec;
+  };
+
+  const specs = {
+    "Cycle 1": {
+      cycleType: "natural",
+      eventDays: { opkPositive: 13 },
+      outcome: { result: "not-pregnant" },
+      notes: "Baseline unmedicated cycle for monitoring.",
+    },
+    "Cycle 2": {
+      cycleType: "oral-iui",
+      medications: [{ name: "Letrozole", dose: "5mg daily", startDay: "3", endDay: "7" }],
+      triggerType: "Ovidrel 250mcg", triggerTime: "21:00",
+      lutealSupport: "Progesterone suppositories 200mg nightly from day 16",
+      eventDays: { trigger: 12, iui: 14 },
+      outcome: { result: "not-pregnant" },
+    },
+    "Cycle 3": {
+      cycleType: "ivf-stim",
+      medications: [
+        { name: "Gonal-F", dose: "225 IU nightly", startDay: "3", endDay: "12" },
+        { name: "Menopur", dose: "75 IU nightly", startDay: "3", endDay: "12" },
+        { name: "Cetrotide", dose: "0.25mg daily", startDay: "7", endDay: "12" },
+      ],
+      triggerType: "Lupron + low-dose hCG", triggerTime: "20:30",
+      eventDays: { trigger: 12, retrieval: 14 },
+      outcome: { eggsRetrieved: 12, eggsMature: 9, fertilized: 7, blastocysts: 4, pgtNormal: 2, pgtAbnormal: 1, pgtMosaic: 1, result: "freeze-all", notes: "Freeze-all, PGT-A sent; transfer planned next cycle." },
+    },
+    "Cycle 4": {
+      cycleType: "fet",
+      medications: [
+        { name: "Estrace", dose: "2mg three times daily", startDay: "2", endDay: "19" },
+        { name: "Progesterone in oil", dose: "1mL IM nightly", startDay: "14", endDay: "" },
+      ],
+      lutealSupport: "PIO 1mL IM nightly, continued after transfer",
+      eventDays: { transfer: 19 },
+      betas: [{ day: 28, value: 118 }, { day: 30, value: 265 }],
+      outcome: { result: "ongoing", notes: "Single euploid blastocyst transferred." },
+    },
+  };
+
+  const out = {};
+  Object.entries(specs).forEach(([label, spec]) => {
+    if (starts[label]) out[label] = build(label, spec);
+  });
+  return out;
+}
+
 
 // The grid's own column order — this IS the "spreadsheet template". A paste
 // that starts at the Date cell and matches this left-to-right order will map
 // perfectly; a paste starting anywhere else just fills from that column on.
-const COLUMN_ORDER = ["date", "cycleLabel", "cycleDay", "fsh", "lh", "e2", "pgn", "endo", "follicle", "afcR", "afcL", "amh", "tsh", "notes"];
-const NUMERIC_KEYS = new Set(["cycleDay", ...HORMONE_FIELDS.map((h) => h.key)]);
+const COLUMN_ORDER = ["date", "cycleLabel", "cycleDay", ...ENTRY_FIELDS.map((f) => f.key), "notes"];
+const NUMERIC_KEYS = new Set(["cycleDay", ...ENTRY_FIELDS.map((h) => h.key)]);
 
 let tempIdCounter = 0;
 function nextTempId() { tempIdCounter += 1; return `tmp-${Date.now()}-${tempIdCounter}`; }
@@ -475,20 +580,15 @@ function draftRowToVisit(row) {
     date: row.date, cycleLabel: row.cycleLabel.trim(), cycleDay: Number(row.cycleDay),
     notes: (row.notes || "").trim(),
   };
-  HORMONE_FIELDS.forEach((h) => { visit[h.key] = num(row[h.key]); });
+  ENTRY_FIELDS.forEach((h) => { visit[h.key] = num(row[h.key]); });
   return visit;
 }
 function visitToDraftRow(visit) {
   const str = (v) => (v === null || v === undefined ? "" : String(v));
   const row = { tempId: nextTempId(), existingId: visit.id, date: visit.date, cycleLabel: visit.cycleLabel, cycleDay: str(visit.cycleDay), notes: visit.notes || "" };
-  HORMONE_FIELDS.forEach((h) => { row[h.key] = str(visit[h.key]); });
+  ENTRY_FIELDS.forEach((h) => { row[h.key] = str(visit[h.key]); });
   return row;
 }
-
-// ── SHARED SMALL STYLES ─────────────────────────────────────────────────
-const gridInputStyle = { width: "100%", padding: "6px 7px", border: `1px solid ${hair}`, borderRadius: 4, fontSize: 12, fontFamily: "inherit", color: ink, background: paper, boxSizing: "border-box" };
-const gridInputErrorStyle = { ...gridInputStyle, border: `1px solid ${rust}`, background: "#FBEFEA" };
-const smallBtn = (bg, color, border) => ({ padding: "5px 10px", borderRadius: 4, border: border || "none", background: bg, color, fontSize: 11, fontWeight: 700, cursor: "pointer", whiteSpace: "nowrap" });
 
 // ── EDITABLE SPREADSHEET GRID ────────────────────────────────────────────
 function SpreadsheetGrid({ rows, onChangeCell, onPasteBlock, onRemoveRow, onDuplicateRow, onAddRows, onSaveRow, onSaveAll }) {
@@ -588,10 +688,10 @@ function SpreadsheetGrid({ rows, onChangeCell, onPasteBlock, onRemoveRow, onDupl
                   <td style={{ padding: "5px 6px", minWidth: 104 }}>{cellInput(row, rowIdx, 0, "date", { placeholder: "YYYY-MM-DD", error: hasData && !dateOk })}</td>
                   <td style={{ padding: "5px 6px", minWidth: 92 }}>{cellInput(row, rowIdx, 1, "cycleLabel", { placeholder: "Cycle 5", error: hasData && !cycleOk })}</td>
                   <td style={{ padding: "5px 6px", minWidth: 52 }}>{cellInput(row, rowIdx, 2, "cycleDay", { inputMode: "numeric", error: hasData && !dayOk })}</td>
-                  {HORMONE_FIELDS.map((h, i) => (
+                  {ENTRY_FIELDS.map((h, i) => (
                     <td key={h.key} style={{ padding: "5px 6px", minWidth: 60 }}>{cellInput(row, rowIdx, 3 + i, h.key, { inputMode: "decimal" })}</td>
                   ))}
-                  <td style={{ padding: "5px 6px", minWidth: 120 }}>{cellInput(row, rowIdx, 3 + HORMONE_FIELDS.length, "notes")}</td>
+                  <td style={{ padding: "5px 6px", minWidth: 120 }}>{cellInput(row, rowIdx, 3 + ENTRY_FIELDS.length, "notes")}</td>
                   <td style={{ padding: "5px 6px", whiteSpace: "nowrap" }}>
                     <div style={{ display: "flex", gap: 6, alignItems: "center" }}>
                       <button onClick={() => onSaveRow(row.tempId)} disabled={!valid} title={valid ? "" : hasData ? `Needs: ${missing.join(", ")}` : ""} style={{ ...smallBtn(valid ? sageDeep : hair, valid ? "#fff" : "#8A8272"), cursor: valid ? "pointer" : "default" }}>
@@ -626,8 +726,14 @@ const VISIT_TABLE_HEADERS = [
   ["FSH", FIELD_TITLES.fsh], ["LH", FIELD_TITLES.lh], ["E2", FIELD_TITLES.e2], ["PGN", FIELD_TITLES.pgn],
   ["Endo", FIELD_TITLES.endo], ["Follic.", FIELD_TITLES.follicle],
   ["AFC R/L", "Antral Follicle Count — right / left ovary (count)"],
-  ["AMH", FIELD_TITLES.amh], ["TSH", FIELD_TITLES.tsh], ["", ""],
+  ["AMH", FIELD_TITLES.amh], ["TSH", FIELD_TITLES.tsh],
+  ["BP", "Blood pressure — systolic / diastolic (mmHg)"], ["HR", FIELD_TITLES.hr], ["", ""],
 ];
+// Systolic/diastolic share one column the way a chart records them: 118/74.
+function formatBP(visit) {
+  if (visit.bpSys == null && visit.bpDia == null) return "—";
+  return `${visit.bpSys ?? "–"}/${visit.bpDia ?? "–"}`;
+}
 function VisitTable({ visits, onEdit, onDelete }) {
   if (visits.length === 0) {
     return <div style={{ border: `1px dashed ${hair}`, borderRadius: 6, padding: "28px 18px", textAlign: "center", color: "#8A8272", fontSize: 13 }}>No visits saved yet. Paste rows above, or add one by hand, to get started.</div>;
@@ -657,6 +763,8 @@ function VisitTable({ visits, onEdit, onDelete }) {
               <td style={{ padding: "7px 8px" }}>{v.afcR ?? "–"}/{v.afcL ?? "–"}</td>
               <td style={{ padding: "7px 8px" }}>{v.amh ?? "—"}</td>
               <td style={{ padding: "7px 8px" }}>{v.tsh ?? "—"}</td>
+              <td style={{ padding: "7px 8px" }}>{formatBP(v)}</td>
+              <td style={{ padding: "7px 8px" }}>{v.hr ?? "—"}</td>
               <td style={{ padding: "7px 8px", whiteSpace: "nowrap" }}>
                 <button onClick={() => onEdit(v)} style={{ border: "none", background: "none", color: sageDeep, cursor: "pointer", fontSize: 11.5, fontWeight: 700, marginRight: 8 }}>Edit</button>
                 <button onClick={() => onDelete(v.id)} style={{ border: "none", background: "none", color: rust, cursor: "pointer", fontSize: 11.5, fontWeight: 700 }}>Delete</button>
@@ -849,9 +957,10 @@ function GuidePanel({ hormoneKey, ageInfo }) {
 }
 
 // ── GENERIC DAY CHART (used for FSH/LH/E2/PGN/Endo/Follicle/AFC-by-day) ──
-function DayChart({ title, unit, sub, hormoneKey, refBands, thresholdLines, yMax, visits, cycleColors, cyclesToShow, guideKey, hideGuide, ageInfo }) {
+function DayChart({ title, unit, sub, hormoneKey, refBands, thresholdLines, yMax, visits, cycleColors, cyclesToShow, guideKey, hideGuide, ageInfo, eventMarkers }) {
   const data = buildMergedByDay(visits, hormoneKey);
   const dotR = (color) => (props) => <CustomDot cx={props.cx} cy={props.cy} value={props.value} color={color} />;
+  const markers = eventMarkers || [];
   return (
     <div style={{ display: "grid", gap: 0 }}>
       <div style={{ background: panel, border: `1px solid ${hair}`, borderRadius: 6, padding: "18px 16px 12px" }}>
@@ -873,6 +982,10 @@ function DayChart({ title, unit, sub, hormoneKey, refBands, thresholdLines, yMax
               ))}
               {(thresholdLines || []).map((t, i) => (
                 <ReferenceLine key={i} y={t.y} stroke={sageDeep} strokeDasharray="4 2" strokeWidth={1.5} label={{ value: t.label, position: "insideTopRight", fontSize: 10, fill: sageDeep }} />
+              ))}
+              {markers.map((m) => (
+                <ReferenceLine key={m.key} x={m.day} stroke={rust} strokeDasharray="5 3" strokeWidth={1.3} ifOverflow="extendDomain"
+                  label={{ value: m.short, position: "top", fontSize: 9.5, fontWeight: 700, fill: rust }} />
               ))}
               <CartesianGrid stroke={hair} strokeDasharray="2 4" vertical={false} />
               {sharedXAxis()}
@@ -903,17 +1016,6 @@ function DayChart({ title, unit, sub, hormoneKey, refBands, thresholdLines, yMax
 }
 
 // ── AFC BY OVARY (bar, by visit date) ────────────────────────────────────
-function makeAFCTick(rows) {
-  return function AFCTick({ x, y, payload }) {
-    const row = rows.find((d) => d.date === payload.value);
-    return (
-      <g transform={`translate(${x},${y})`}>
-        <text x={0} y={0} dy={12} textAnchor="middle" fontSize={11} fill="#8A8272">{payload.value}</text>
-        <text x={0} y={0} dy={26} textAnchor="middle" fontSize={10} fontWeight={700} fill={sageDeep}>{row ? row.cycleLabel : ""}</text>
-      </g>
-    );
-  };
-}
 function AFCByOvaryChart({ visits, selectedCycles, ageInfo }) {
   const rows = visits
     .filter((v) => selectedCycles.has(v.cycleLabel) && (v.afcR != null || v.afcL != null))
@@ -937,7 +1039,7 @@ function AFCByOvaryChart({ visits, selectedCycles, ageInfo }) {
         <ResponsiveContainer width="100%" height={290}>
           <BarChart data={rows} margin={{ top: 24, right: 20, left: 4, bottom: 14 }} barCategoryGap="22%">
             <CartesianGrid stroke={hair} strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="date" tick={makeAFCTick(rows)} height={40} interval={0} />
+            <XAxis dataKey="date" tick={makeDateCycleTick(rows)} height={40} interval={0} />
             <YAxis domain={[0, yMax]} tick={{ fontSize: 11, fill: "#8A8272" }} width={36} />
             <ReferenceLine y={afc.optimalMin} stroke={sageDeep} strokeDasharray="3 3" strokeWidth={1} label={{ value: `total optimal ≥${afc.optimalMin}`, position: "insideTopLeft", fontSize: 9.5, fill: sageDeep }} />
             <ReferenceLine y={afc.dor} stroke={amber} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: `total DOR <${afc.dor}`, position: "insideTopRight", fontSize: 9.5, fill: amber }} />
@@ -977,7 +1079,7 @@ function PointInTimeChart({ visits, field, label, unit, band, refLine, yMax, cyc
         <ResponsiveContainer width="100%" height={205}>
           <BarChart data={rows} margin={{ top: 24, right: 12, left: 0, bottom: 4 }}>
             <CartesianGrid stroke={hair} strokeDasharray="2 4" vertical={false} />
-            <XAxis dataKey="date" tick={makeAFCTick(rows)} height={40} interval={0} />
+            <XAxis dataKey="date" tick={makeDateCycleTick(rows)} height={40} interval={0} />
             <YAxis domain={[0, yMax]} tick={{ fontSize: 10, fill: "#8A8272" }} width={30} />
             {band && <ReferenceArea y1={band.y1} y2={band.y2} fill={sage} fillOpacity={0.2} stroke={sage} strokeOpacity={0.3} strokeDasharray="2 2" />}
             {refLine && <ReferenceLine y={refLine.y} stroke={amber} strokeDasharray="3 3" strokeWidth={1.5} label={{ value: refLine.label, position: "insideTopLeft", fontSize: 9, fill: amber }} />}
@@ -1319,24 +1421,29 @@ function SectionDivider({ label }) {
   );
 }
 
+// Places a cycle's dated treatment events on the cycle-day x-axis the charts
+// share. Returns nothing unless exactly one cycle is selected: several
+// cycles' triggers and transfers overlaid on one axis is a thicket of lines
+// that hides the data underneath. Events outside the plotted day range, or in
+// a cycle whose day 1 can't be inferred, are dropped.
+function buildEventMarkers(shownCycles, cycles, cycleStartDates) {
+  if (shownCycles.length !== 1) return [];
+  const label = shownCycles[0];
+  const record = cycles ? cycles[label] : null;
+  const start = cycleStartDates ? cycleStartDates[label] : "";
+  if (!record || !start) return [];
+  return CYCLE_EVENTS
+    .map((e) => {
+      const day = cycleDayForDate(start, record.events[e.key]);
+      return day !== null && day >= 1 && day <= DAY_MAX ? { key: e.key, day, short: e.short, label: e.label } : null;
+    })
+    .filter(Boolean);
+}
+
 // ── DASHBOARD SECTION ─────────────────────────────────────────────────────
-function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycle }) {
+function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycle, cycleLabels, cycleColors, cycleDateRanges, cycleStartDates, cycles }) {
   const [selectedCycles, setSelectedCycles] = useState(() => new Set());
   const seenCyclesRef = useRef(new Set());
-
-  const cycleLabels = useMemo(() => {
-    const order = [];
-    visits.forEach((v) => { if (!order.includes(v.cycleLabel)) order.push(v.cycleLabel); });
-    return order;
-  }, [visits]);
-
-  const cycleColors = useMemo(() => {
-    const map = {};
-    cycleLabels.forEach((c, i) => { map[c] = CYCLE_PALETTE[i % CYCLE_PALETTE.length]; });
-    return map;
-  }, [cycleLabels]);
-
-  const cycleDateRanges = useMemo(() => computeCycleDateRanges(visits), [visits]);
 
   const visitCounts = useMemo(() => {
     const counts = {};
@@ -1387,6 +1494,16 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
 
   const shown = cycleLabels.filter((c) => selectedCycles.has(c));
 
+  // Medicated cycles are called out rather than silently plotted: every
+  // reference band on these charts describes a natural cycle, and a
+  // stimulated cycle's estradiol and progesterone routinely sit above them.
+  const medicatedShown = shown.filter((c) => isMedicatedCycle(cycles[c]));
+
+  // Treatment events are drawn on the cycle-day axis only when a single
+  // cycle is selected — overlaying several cycles' triggers and transfers on
+  // one axis produces a thicket of lines that hides the data underneath.
+  const eventMarkers = buildEventMarkers(shown, cycles, cycleStartDates);
+
   if (visits.length === 0) {
     return (
       <div style={{ border: `1px dashed ${hair}`, borderRadius: 6, padding: "34px 20px", textAlign: "center", color: "#8A8272", fontSize: 13, display: "grid", gap: 12, justifyItems: "center" }}>
@@ -1431,19 +1548,46 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
         </div>
       )}
 
+      {medicatedShown.length > 0 && (
+        <div style={{ margin: "0 0 16px", padding: "11px 15px", background: "#F7EFDF", borderLeft: `3px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.55 }}>
+          <strong>Medicated cycle{medicatedShown.length === 1 ? "" : "s"} shown.</strong>{" "}
+          {medicatedShown.map((c) => `${c} (${cycleTypeInfo(cycles[c].cycleType).short})`).join(", ")}
+          {medicatedShown.length === 1 ? " was" : " were"} on medication, but every shaded reference band below describes a{" "}
+          <em>natural, unmedicated</em> cycle. Estradiol in particular routinely runs several times the natural-cycle
+          range on stimulation — because more follicles are growing at once, each producing estradiol — and progesterone
+          often runs higher too. Reading a stimulated cycle against these bands will make normal numbers look abnormal.
+        </div>
+      )}
+
+      {eventMarkers.length > 0 && (
+        <div style={{ margin: "0 0 16px", padding: "9px 14px", background: paper, border: `1px solid ${hair}`, borderRadius: 4, fontSize: 11.5, color: muted, lineHeight: 1.5 }}>
+          <span style={{ color: rust, fontWeight: 700 }}>Dashed vertical lines</span> on the charts below mark this cycle&rsquo;s
+          treatment events: {eventMarkers.map((m) => `${m.label} (day ${m.day})`).join(" · ")}.
+        </div>
+      )}
+      {shown.length > 1 && (
+        <div style={{ margin: "0 0 16px", fontSize: 11, color: faint, textAlign: "center", fontStyle: "italic" }}>
+          Select a single cycle to mark its trigger, IUI, retrieval and transfer days on the charts.
+        </div>
+      )}
+
+      <CycleComparisonTable cycleLabels={cycleLabels} cycleColors={cycleColors} cycleDateRanges={cycleDateRanges}
+        cycleStartDates={cycleStartDates} cycles={cycles} visits={visits} />
+      <div style={{ height: 20 }} />
+
       <div style={{ display: "grid", gap: 20 }}>
         <SectionDivider label="LH & Follicle" />
-        <DayChart {...HORMONE_META.lh} hormoneKey="lh" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} />
-        <DayChart {...HORMONE_META.follicle} hormoneKey="follicle" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} />
+        <DayChart {...HORMONE_META.lh} hormoneKey="lh" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} eventMarkers={eventMarkers} />
+        <DayChart {...HORMONE_META.follicle} hormoneKey="follicle" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} eventMarkers={eventMarkers} />
 
         <SectionDivider label="Estradiol" />
-        <DayChart {...HORMONE_META.e2} hormoneKey="e2" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} />
+        <DayChart {...HORMONE_META.e2} hormoneKey="e2" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} eventMarkers={eventMarkers} />
 
         <SectionDivider label="Progesterone" />
-        <DayChart {...HORMONE_META.pgn} hormoneKey="pgn" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} />
+        <DayChart {...HORMONE_META.pgn} hormoneKey="pgn" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} eventMarkers={eventMarkers} />
 
         <SectionDivider label="Endometrium" />
-        <DayChart {...HORMONE_META.endo} hormoneKey="endo" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} />
+        <DayChart {...HORMONE_META.endo} hormoneKey="endo" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} eventMarkers={eventMarkers} />
 
         <SectionDivider label="Ovarian Reserve" />
         {ageInfo.isDefault && (
@@ -1457,6 +1601,12 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
           hormoneKey="fsh" visits={visits} cycleColors={cycleColors} cyclesToShow={shown} ageInfo={ageInfo} />
         <AFCByOvaryChart visits={visits} selectedCycles={selectedCycles} ageInfo={ageInfo} />
         <ReserveChart visits={visits} cycleColors={cycleColors} cyclesToShow={shown} ageInfo={ageInfo} />
+
+        <SectionDivider label="Vitals" />
+        <div style={{ display: "grid", gap: 0 }}>
+          <VitalsChart visits={visits} cyclesToShow={shown} />
+          <GuidePanel hormoneKey="vitals" />
+        </div>
       </div>
 
       <div style={{ marginTop: 20, padding: "12px 16px", background: "#EFECE3", borderLeft: `3px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.55 }}>
@@ -1469,6 +1619,7 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
 // ── MAIN ─────────────────────────────────────────────────────────────────
 export default function LocalFertilityTracker() {
   const [visits, setVisits] = useState([]);
+  const [cycles, setCycles] = useState({});
   const [draftRows, setDraftRows] = useState([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
@@ -1477,14 +1628,42 @@ export default function LocalFertilityTracker() {
   const [age, setAge] = useState("");
 
   const refresh = useCallback(async () => {
-    try { setVisits(await storeGetAll()); setError(""); }
-    catch (err) { setError("Couldn't read saved data: " + err.message); }
+    try {
+      const [nextVisits, nextCycles] = await Promise.all([storeGetAll(), storeGetCycles()]);
+      setVisits(nextVisits);
+      setCycles(nextCycles);
+      setError("");
+    } catch (err) { setError("Couldn't read saved data: " + err.message); }
   }, []);
   useEffect(() => { refresh().finally(() => setReady(true)); }, [refresh]);
   useEffect(() => {
     storeGetProfile().then((p) => { if (p && p.age) setAge(String(p.age)); }).catch(() => {});
   }, []);
   const ageInfo = useMemo(() => resolveAgeBand(age), [age]);
+
+  // Cycles are derived from the visits themselves — a cycle exists because
+  // visits carry its label. Derived here rather than in the dashboard so the
+  // treatment editor and the charts agree on the same list, colours and dates.
+  const cycleLabels = useMemo(() => {
+    const order = [];
+    visits.forEach((v) => { if (!order.includes(v.cycleLabel)) order.push(v.cycleLabel); });
+    return order;
+  }, [visits]);
+  const cycleColors = useMemo(() => {
+    const map = {};
+    cycleLabels.forEach((c, i) => { map[c] = CYCLE_PALETTE[i % CYCLE_PALETTE.length]; });
+    return map;
+  }, [cycleLabels]);
+  const cycleDateRanges = useMemo(() => computeCycleDateRanges(visits), [visits]);
+  const cycleStartDates = useMemo(() => computeCycleStartDates(visits), [visits]);
+
+  // Treatment edits write straight through to storage, matching how the age
+  // field behaves. Local state updates first so typing stays responsive.
+  const handleChangeCycle = useCallback(async (label, record) => {
+    setCycles((prev) => ({ ...prev, [label]: record }));
+    try { await storePutCycle(label, record); setError(""); }
+    catch (err) { setError("Couldn't save that cycle's treatment details: " + err.message); }
+  }, []);
   const handleAgeChange = (val) => {
     const cleaned = val.replace(/[^\d]/g, "").slice(0, 2);
     setAge(cleaned);
@@ -1573,23 +1752,48 @@ export default function LocalFertilityTracker() {
     });
   };
 
+  // Backups now carry cycle treatment records alongside the visits, so the
+  // file is an object rather than the bare visit array earlier versions
+  // wrote. Older array-shaped backups still import — see handleImport.
   const handleExport = () => {
-    const blob = new Blob([JSON.stringify(visits, null, 2)], { type: "application/json" });
+    const payload = {
+      format: "fertility-tracker-backup",
+      version: 2,
+      exportedAt: new Date().toISOString(),
+      visits,
+      cycles,
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url; a.download = `fertility-tracker-backup-${new Date().toISOString().slice(0, 10)}.json`; a.click();
     URL.revokeObjectURL(url);
-    setStatus("Backup file downloaded.");
+    setStatus("Backup file downloaded — visits and cycle treatment details.");
   };
   const handleImport = async (e) => {
     const file = e.target.files[0];
     if (!file) return;
     try {
       const data = JSON.parse(await file.text());
-      if (!Array.isArray(data)) throw new Error("File doesn't look like a valid backup.");
-      const validVisits = data.filter((v) => v.id && v.date && v.cycleLabel);
+      // A bare array is a version-1 backup (visits only); an object with a
+      // `visits` array is version 2 and may also carry cycle records.
+      const rawVisits = Array.isArray(data) ? data : Array.isArray(data && data.visits) ? data.visits : null;
+      if (!rawVisits) throw new Error("File doesn't look like a valid backup.");
+      const validVisits = rawVisits.filter((v) => v && v.id && v.date && v.cycleLabel);
       await storePutMany(validVisits);
-      setStatus(`Imported ${validVisits.length} visit(s).`);
+
+      let cycleCount = 0;
+      const rawCycles = !Array.isArray(data) && data && data.cycles;
+      if (rawCycles && typeof rawCycles === "object") {
+        const merged = await storeGetCycles();
+        Object.entries(rawCycles).forEach(([label, rec]) => {
+          merged[label] = normalizeCycleRecord(rec);
+          cycleCount += 1;
+        });
+        await storeSaveCycles(merged);
+      }
+
+      setStatus(`Imported ${validVisits.length} visit(s)` + (cycleCount ? ` and treatment details for ${cycleCount} cycle(s).` : "."));
       setError("");
       refresh();
     } catch (err) { setError("Import failed: " + err.message); }
@@ -1597,10 +1801,15 @@ export default function LocalFertilityTracker() {
   };
   const requestClearAll = () => {
     setPendingConfirm({
-      message: "Delete ALL saved visits? This can't be undone. Consider exporting a backup first.",
+      message: "Delete ALL saved visits and cycle treatment details? This can't be undone. Consider exporting a backup first.",
       action: async () => {
-        try { await storeClear(); setStatus("All local data cleared."); setError(""); refresh(); }
-        catch (err) { setError("Couldn't clear data: " + err.message); }
+        try {
+          await storeClear();
+          await storeClearCycles();
+          setStatus("All local data cleared.");
+          setError("");
+          refresh();
+        } catch (err) { setError("Couldn't clear data: " + err.message); }
         setPendingConfirm(null);
       },
     });
@@ -1608,8 +1817,12 @@ export default function LocalFertilityTracker() {
 
   const handleLoadFakeData = async () => {
     try {
-      await storePutMany(generateFakeVisits());
-      setStatus("Fake data loaded — explore the charts below. Use \u201cClear all local data\u201d anytime to start fresh with your own.");
+      const fakeVisits = generateFakeVisits();
+      await storePutMany(fakeVisits);
+      // Merged rather than written over the top, matching how visits load —
+      // a stray record from a since-deleted cycle isn't the demo's to erase.
+      await storeSaveCycles({ ...(await storeGetCycles()), ...generateFakeCycles(fakeVisits) });
+      setStatus("Fake data loaded — explore the charts and cycle comparison below. Use \u201cClear all local data\u201d anytime to start fresh with your own.");
       setError("");
       refresh();
     } catch (err) { setError("Couldn't load fake data: " + err.message); }
@@ -1619,7 +1832,15 @@ export default function LocalFertilityTracker() {
     try {
       const count = await storeRenameCycle(oldLabel, newLabel);
       if (count === 0) return; // already renamed — e.g. a duplicate commit from blur+Enter
-      setStatus(`Renamed "${oldLabel}" to "${newLabel}" (${count} visit${count === 1 ? "" : "s"}).`);
+      // Treatment details follow the label. Renaming onto a cycle that
+      // already has its own details can't merge two protocols into one, so
+      // say plainly when the source record was dropped rather than implying
+      // it moved.
+      const { discarded } = await storeRenameCycleRecord(oldLabel, newLabel);
+      setStatus(
+        `Renamed "${oldLabel}" to "${newLabel}" (${count} visit${count === 1 ? "" : "s"}).` +
+        (discarded ? ` "${newLabel}" already had its own treatment details, so those were kept and the ones from "${oldLabel}" were discarded.` : "")
+      );
       setError("");
       refresh();
     } catch (err) { setError("Couldn't rename that cycle: " + err.message); }
@@ -1684,6 +1905,10 @@ export default function LocalFertilityTracker() {
             <VisitTable visits={visits} onEdit={editVisit} onDelete={requestDelete} />
           </div>
 
+          {/* ─── PER-CYCLE TREATMENT CONTEXT ──────────────────── */}
+          <CycleTreatmentSection cycleLabels={cycleLabels} cycleColors={cycleColors} cycleDateRanges={cycleDateRanges}
+            cycleStartDates={cycleStartDates} cycles={cycles} onChangeCycle={handleChangeCycle} />
+
           <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "center", borderTop: `1px solid ${hair}`, paddingTop: 16 }}>
             <button onClick={handleExport} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${sageDeep}`, background: panel, color: sageDeep, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Download backup (.json)</button>
             <label style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: ink, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
@@ -1694,7 +1919,9 @@ export default function LocalFertilityTracker() {
             <button onClick={requestClearAll} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: "none", color: rust, fontSize: 12.5, cursor: "pointer" }}>Clear all local data</button>
           </div>
 
-          <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} onRenameCycle={handleRenameCycle} />
+          <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} onRenameCycle={handleRenameCycle}
+            cycleLabels={cycleLabels} cycleColors={cycleColors} cycleDateRanges={cycleDateRanges}
+            cycleStartDates={cycleStartDates} cycles={cycles} />
         </div>
 
         <DisclaimerFooter />

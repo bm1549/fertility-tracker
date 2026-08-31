@@ -9,6 +9,10 @@ import {
   parsePastedText,
   guessFieldForHeader,
   parseLabText,
+  addDays,
+  daysBetween,
+  computeCycleStartDates,
+  cycleDayForDate,
 } from "./utils.js";
 
 // ── normalizeDate ───────────────────────────────────────────────────────
@@ -226,6 +230,26 @@ describe("guessFieldForHeader", () => {
     expect(guessFieldForHeader("")).toBe("ignore");
     expect(guessFieldForHeader(null)).toBe("ignore");
   });
+
+  it("recognizes vitals headers", () => {
+    expect(guessFieldForHeader("Systolic")).toBe("bpSys");
+    expect(guessFieldForHeader("BP Sys")).toBe("bpSys");
+    expect(guessFieldForHeader("SBP")).toBe("bpSys");
+    expect(guessFieldForHeader("Diastolic BP")).toBe("bpDia");
+    expect(guessFieldForHeader("DBP")).toBe("bpDia");
+    expect(guessFieldForHeader("Heart rate")).toBe("hr");
+    expect(guessFieldForHeader("Pulse")).toBe("hr");
+    expect(guessFieldForHeader("bpm")).toBe("hr");
+  });
+
+  it("matches short vitals headers only when they stand alone", () => {
+    expect(guessFieldForHeader("HR")).toBe("hr");
+    expect(guessFieldForHeader("hr")).toBe("hr");
+    expect(guessFieldForHeader("BP")).toBe("bpSys");
+    // "hr" as a substring of an unrelated word must not map to heart rate.
+    expect(guessFieldForHeader("Chart")).toBe("ignore");
+    expect(guessFieldForHeader("Threshold")).toBe("ignore");
+  });
 });
 
 // ── parseLabText ────────────────────────────────────────────────────────
@@ -381,5 +405,140 @@ describe("parseLabText", () => {
       expect(result.values.fsh).toBe("5.2");
       expect(result.values.lh).toBe("3.8");
     });
+  });
+});
+
+// ── addDays / daysBetween ───────────────────────────────────────────────
+describe("addDays", () => {
+  it("adds days within a month", () => {
+    expect(addDays("2026-08-15", 5)).toBe("2026-08-20");
+  });
+
+  it("subtracts days across a month boundary", () => {
+    expect(addDays("2026-03-02", -5)).toBe("2026-02-25");
+  });
+
+  it("handles leap day", () => {
+    expect(addDays("2028-02-28", 1)).toBe("2028-02-29");
+    expect(addDays("2028-02-29", 1)).toBe("2028-03-01");
+  });
+
+  it("crosses a year boundary", () => {
+    expect(addDays("2026-12-30", 3)).toBe("2027-01-02");
+  });
+
+  it("returns empty for a non-ISO or missing date", () => {
+    expect(addDays("08/15/2026", 1)).toBe("");
+    expect(addDays("", 1)).toBe("");
+    expect(addDays(null, 1)).toBe("");
+  });
+
+  it("is a no-op for a zero delta", () => {
+    expect(addDays("2026-08-15", 0)).toBe("2026-08-15");
+  });
+
+  // Spring-forward in most US timezones: local-time arithmetic on this date
+  // is where an off-by-one day would show up.
+  it("is unaffected by a DST boundary", () => {
+    expect(addDays("2026-03-07", 1)).toBe("2026-03-08");
+    expect(addDays("2026-03-08", 1)).toBe("2026-03-09");
+    expect(addDays("2026-11-01", 1)).toBe("2026-11-02");
+  });
+});
+
+describe("daysBetween", () => {
+  it("counts forward days", () => {
+    expect(daysBetween("2026-08-01", "2026-08-15")).toBe(14);
+  });
+
+  it("returns 0 for the same date", () => {
+    expect(daysBetween("2026-08-01", "2026-08-01")).toBe(0);
+  });
+
+  it("returns a negative count when the second date is earlier", () => {
+    expect(daysBetween("2026-08-15", "2026-08-01")).toBe(-14);
+  });
+
+  it("spans a DST boundary without drifting", () => {
+    expect(daysBetween("2026-03-01", "2026-03-31")).toBe(30);
+  });
+
+  it("returns null for invalid input", () => {
+    expect(daysBetween("nope", "2026-08-01")).toBeNull();
+    expect(daysBetween("2026-08-01", "")).toBeNull();
+    expect(daysBetween(null, null)).toBeNull();
+  });
+});
+
+// ── computeCycleStartDates ──────────────────────────────────────────────
+describe("computeCycleStartDates", () => {
+  it("infers day 1 from a visit's date and cycle day", () => {
+    const visits = [{ cycleLabel: "Cycle 1", date: "2026-08-12", cycleDay: 12 }];
+    expect(computeCycleStartDates(visits)["Cycle 1"]).toBe("2026-08-01");
+  });
+
+  it("treats a day-1 visit as the start date itself", () => {
+    const visits = [{ cycleLabel: "Cycle 1", date: "2026-08-01", cycleDay: 1 }];
+    expect(computeCycleStartDates(visits)["Cycle 1"]).toBe("2026-08-01");
+  });
+
+  it("handles several cycles independently", () => {
+    const visits = [
+      { cycleLabel: "Cycle 1", date: "2026-08-03", cycleDay: 3 },
+      { cycleLabel: "Cycle 2", date: "2026-09-05", cycleDay: 5 },
+    ];
+    const starts = computeCycleStartDates(visits);
+    expect(starts["Cycle 1"]).toBe("2026-08-01");
+    expect(starts["Cycle 2"]).toBe("2026-09-01");
+  });
+
+  it("prefers the lowest cycle day when visits disagree", () => {
+    // The day-21 visit implies Aug 1; the day-2 visit implies Aug 2. The
+    // lower cycle day wins, being least sensitive to a mistyped day.
+    const visits = [
+      { cycleLabel: "Cycle 1", date: "2026-08-21", cycleDay: 21 },
+      { cycleLabel: "Cycle 1", date: "2026-08-03", cycleDay: 2 },
+    ];
+    expect(computeCycleStartDates(visits)["Cycle 1"]).toBe("2026-08-02");
+  });
+
+  it("ignores visits with an unusable date or cycle day", () => {
+    const visits = [
+      { cycleLabel: "Cycle 1", date: "not-a-date", cycleDay: 3 },
+      { cycleLabel: "Cycle 2", date: "2026-08-03", cycleDay: 0 },
+      { cycleLabel: "Cycle 3", date: "2026-08-03", cycleDay: "x" },
+    ];
+    expect(computeCycleStartDates(visits)).toEqual({});
+  });
+
+  it("returns an empty map for no visits", () => {
+    expect(computeCycleStartDates([])).toEqual({});
+    expect(computeCycleStartDates(null)).toEqual({});
+  });
+});
+
+// ── cycleDayForDate ─────────────────────────────────────────────────────
+describe("cycleDayForDate", () => {
+  it("maps the start date itself to day 1", () => {
+    expect(cycleDayForDate("2026-08-01", "2026-08-01")).toBe(1);
+  });
+
+  it("maps a later date to the right cycle day", () => {
+    expect(cycleDayForDate("2026-08-01", "2026-08-14")).toBe(14);
+  });
+
+  it("round-trips with computeCycleStartDates", () => {
+    const visits = [{ cycleLabel: "Cycle 1", date: "2026-08-12", cycleDay: 12 }];
+    const start = computeCycleStartDates(visits)["Cycle 1"];
+    expect(cycleDayForDate(start, "2026-08-12")).toBe(12);
+  });
+
+  it("returns a day below 1 for a date before the cycle started", () => {
+    expect(cycleDayForDate("2026-08-10", "2026-08-08")).toBe(-1);
+  });
+
+  it("returns null when either date is unusable", () => {
+    expect(cycleDayForDate("", "2026-08-01")).toBeNull();
+    expect(cycleDayForDate("2026-08-01", "")).toBeNull();
   });
 });
