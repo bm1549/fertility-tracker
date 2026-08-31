@@ -1537,7 +1537,7 @@ export default function LocalFertilityTracker() {
           </div>
         </div>
 
-        <div style={{ display: "grid", gap: 16 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
           {/* ─── SMART IMPORT ──────────────────────────────────── */}
           <SmartImport onImportRows={handleSmartImportRows} />
 
