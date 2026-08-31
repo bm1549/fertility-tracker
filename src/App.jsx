@@ -1519,7 +1519,11 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
   }
 
   return (
-    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+    // No width constraint of its own — this section fills the same 880px
+    // column as the entry grid and treatment cards above it. It used to cap
+    // itself at 720px, which made the page visibly narrow and re-center
+    // right at this section's heading, a jog you'd catch mid-scroll.
+    <div>
       <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 12, marginBottom: 4, textAlign: "center" }}>
         <div style={{ fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: amber, fontWeight: 700, marginBottom: 3 }}>Cycle-by-Cycle Trends</div>
         <h2 style={{ fontFamily: "Georgia,serif", fontSize: 24, color: ink, margin: 0 }}>Hormone &amp; Cycle Dashboard</h2>
