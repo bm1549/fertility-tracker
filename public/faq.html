@@ -1,0 +1,455 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Your Data FAQ — Fertility Tracker</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Instrument+Serif:ital@0;1&family=DM+Sans:ital,opsz,wght@0,9..40,300;0,9..40,400;0,9..40,500;1,9..40,300;1,9..40,400&display=swap" rel="stylesheet" />
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; }
+
+    :root {
+      --ground: #FAF8F5;
+      --surface: #F0EDE8;
+      --ink: #2C2A25;
+      --ink-soft: #6B665C;
+      --ink-faint: #9E9889;
+      --accent: #5E7A5E;
+      --accent-light: #E8EFE8;
+      --accent-wash: #D4E0D4;
+      --rule: #DDD8D0;
+      --warm-highlight: #F5F0E6;
+      --code-bg: #ECEAE5;
+      --danger: #B85C4A;
+      --danger-light: #FAEFEC;
+      --safe-badge-bg: #E8EFE8;
+      --safe-badge-text: #3D5C3D;
+    }
+
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --ground: #1C1B18;
+        --surface: #26251F;
+        --ink: #E5E0D8;
+        --ink-soft: #A09A8E;
+        --ink-faint: #706B60;
+        --accent: #8AAF8A;
+        --accent-light: #2A362A;
+        --accent-wash: #344034;
+        --rule: #38352E;
+        --warm-highlight: #2A2820;
+        --code-bg: #2E2C26;
+        --danger: #D4836F;
+        --danger-light: #302420;
+        --safe-badge-bg: #2A362A;
+        --safe-badge-text: #8AAF8A;
+      }
+    }
+    :root[data-theme="dark"] {
+      --ground: #1C1B18;
+      --surface: #26251F;
+      --ink: #E5E0D8;
+      --ink-soft: #A09A8E;
+      --ink-faint: #706B60;
+      --accent: #8AAF8A;
+      --accent-light: #2A362A;
+      --accent-wash: #344034;
+      --rule: #38352E;
+      --warm-highlight: #2A2820;
+      --code-bg: #2E2C26;
+      --danger: #D4836F;
+      --danger-light: #302420;
+      --safe-badge-bg: #2A362A;
+      --safe-badge-text: #8AAF8A;
+    }
+
+    body {
+      background: var(--ground);
+      color: var(--ink);
+      font-family: 'DM Sans', system-ui, -apple-system, sans-serif;
+      line-height: 1.6;
+      max-width: 680px;
+      margin: 0 auto;
+      padding: 48px 24px 80px;
+    }
+
+    /* ── Back link ── */
+    .back-link {
+      display: inline-flex;
+      align-items: center;
+      gap: 5px;
+      font-size: 12.5px;
+      font-weight: 500;
+      color: var(--accent);
+      text-decoration: none;
+      margin-bottom: 28px;
+    }
+    .back-link:hover { text-decoration: underline; }
+    .back-link svg {
+      width: 14px;
+      height: 14px;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+    }
+
+    /* ── Header ── */
+    .page-badge {
+      display: inline-block;
+      font-size: 10px;
+      font-weight: 500;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+      color: var(--safe-badge-text);
+      background: var(--safe-badge-bg);
+      padding: 4px 10px;
+      border-radius: 3px;
+      margin-bottom: 16px;
+    }
+
+    h1 {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-weight: 400;
+      font-size: clamp(32px, 6vw, 42px);
+      line-height: 1.15;
+      color: var(--ink);
+      margin: 0 0 12px;
+      text-wrap: balance;
+    }
+
+    .subtitle {
+      font-size: 15px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+      margin: 0 0 40px;
+      max-width: 560px;
+    }
+
+    /* ── FAQ Items ── */
+    .faq-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0;
+    }
+
+    .faq-item {
+      border-top: 1px solid var(--rule);
+      padding: 28px 0;
+    }
+    .faq-item:last-child {
+      border-bottom: 1px solid var(--rule);
+    }
+
+    .faq-q {
+      font-family: 'Instrument Serif', Georgia, serif;
+      font-size: 20px;
+      line-height: 1.3;
+      color: var(--ink);
+      margin: 0 0 12px;
+      text-wrap: balance;
+    }
+
+    .faq-a {
+      font-size: 14.5px;
+      color: var(--ink-soft);
+      line-height: 1.65;
+      margin: 0;
+    }
+
+    .faq-a + .faq-a {
+      margin-top: 10px;
+    }
+
+    .faq-a strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    /* ── Callout boxes ── */
+    .callout {
+      background: var(--warm-highlight);
+      border-radius: 6px;
+      padding: 14px 16px;
+      margin-top: 12px;
+      font-size: 13.5px;
+      line-height: 1.6;
+      color: var(--ink-soft);
+    }
+    .callout strong {
+      color: var(--ink);
+      font-weight: 500;
+    }
+
+    .callout-safe {
+      background: var(--accent-light);
+    }
+    .callout-safe strong {
+      color: var(--accent);
+    }
+
+    .callout-warn {
+      background: var(--danger-light);
+    }
+    .callout-warn strong {
+      color: var(--danger);
+    }
+
+    /* ── Inline code ── */
+    code {
+      font-family: 'DM Mono', ui-monospace, 'SFMono-Regular', monospace;
+      font-size: 12.5px;
+      background: var(--code-bg);
+      padding: 2px 6px;
+      border-radius: 3px;
+      color: var(--ink);
+      word-break: break-all;
+    }
+
+    /* ── Steps list ── */
+    .steps {
+      list-style: none;
+      padding: 0;
+      margin: 12px 0 0;
+      counter-reset: step;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .steps li {
+      counter-increment: step;
+      display: flex;
+      gap: 10px;
+      align-items: baseline;
+      font-size: 14px;
+      color: var(--ink-soft);
+      line-height: 1.55;
+    }
+    .steps li::before {
+      content: counter(step);
+      flex-shrink: 0;
+      width: 22px;
+      height: 22px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 11px;
+      font-weight: 500;
+      color: var(--accent);
+      background: var(--accent-light);
+      border-radius: 50%;
+      position: relative;
+      top: 1px;
+    }
+
+    /* ── Diagram (data flow) ── */
+    .flow-diagram {
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0;
+      margin: 16px 0 4px;
+      overflow-x: auto;
+      padding: 4px 0;
+    }
+    .flow-node {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      gap: 4px;
+      flex-shrink: 0;
+    }
+    .flow-icon {
+      width: 44px;
+      height: 44px;
+      border-radius: 10px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 20px;
+      background: var(--surface);
+      border: 1px solid var(--rule);
+    }
+    .flow-label {
+      font-size: 10.5px;
+      color: var(--ink-faint);
+      letter-spacing: 0.02em;
+      text-align: center;
+      max-width: 72px;
+    }
+    .flow-arrow {
+      flex-shrink: 0;
+      color: var(--ink-faint);
+      font-size: 16px;
+      margin: 0 8px;
+      position: relative;
+      top: -8px;
+    }
+    .flow-node.safe .flow-icon {
+      background: var(--accent-light);
+      border-color: var(--accent-wash);
+    }
+    .flow-node.gone .flow-icon {
+      opacity: 0.5;
+      border-style: dashed;
+    }
+
+    /* ── Footer ── */
+    .page-footer {
+      margin-top: 48px;
+      padding-top: 20px;
+      border-top: 1px solid var(--rule);
+      font-size: 12px;
+      color: var(--ink-faint);
+      line-height: 1.5;
+    }
+
+    /* ── Responsive ── */
+    @media (max-width: 480px) {
+      body { padding: 32px 18px 60px; }
+      .faq-q { font-size: 18px; }
+      .flow-diagram { justify-content: flex-start; }
+    }
+  </style>
+</head>
+<body>
+
+  <a href="/fertility-tracker/" class="back-link">
+    <svg viewBox="0 0 24 24"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>
+    Back to tracker
+  </a>
+
+  <div class="page-badge">🔒 Privacy &amp; Data</div>
+  <h1>Your Data, Your Browser,<br>Nobody Else's</h1>
+  <p class="subtitle">
+    Fertility Tracker stores everything in your browser's local storage. There's no account to create, no server to trust, and no data that leaves your device. Here's what that means in practice.
+  </p>
+
+  <div class="faq-list">
+
+    <!-- Q1 -->
+    <div class="faq-item">
+      <h2 class="faq-q">Where is my data stored?</h2>
+      <p class="faq-a">
+        Everything — your visit records, hormone values, and age — lives in your browser's <strong>localStorage</strong>, a small database built into every modern browser. The app uses two keys:
+      </p>
+      <p class="faq-a">
+        <code>fertility-tracker:visits</code> holds your saved visits as a JSON array.<br>
+        <code>fertility-tracker:profile</code> holds your age (used for age-specific reference ranges).
+      </p>
+      <div class="callout callout-safe">
+        <strong>No server, no cloud, no account.</strong> Your data never leaves the browser tab. There is no backend — the app is a static page hosted on GitHub Pages with zero server-side processing.
+      </div>
+    </div>
+
+    <!-- Q2 -->
+    <div class="faq-item">
+      <h2 class="faq-q">What happens when I upload a PDF or photo?</h2>
+      <p class="faq-a">
+        When you import a lab report, the file is processed <strong>entirely in your browser</strong> — PDFs are read by a JavaScript library (pdf.js), and images are OCR'd by Tesseract.js. The extracted text is parsed for hormone values and presented as draft rows for you to review.
+      </p>
+      <div class="flow-diagram">
+        <div class="flow-node">
+          <div class="flow-icon">📄</div>
+          <span class="flow-label">Your file</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node safe">
+          <div class="flow-icon">⚙️</div>
+          <span class="flow-label">Parsed in browser</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node safe">
+          <div class="flow-icon">📋</div>
+          <span class="flow-label">Draft rows to review</span>
+        </div>
+        <span class="flow-arrow">→</span>
+        <div class="flow-node gone">
+          <div class="flow-icon">🗑️</div>
+          <span class="flow-label">File discarded</span>
+        </div>
+      </div>
+      <p class="faq-a">
+        The original file is <strong>never stored</strong>. Once parsing finishes, it's gone. Only the rows you explicitly save are written to localStorage.
+      </p>
+    </div>
+
+    <!-- Q3 -->
+    <div class="faq-item">
+      <h2 class="faq-q">Can I access my data on another device — my phone, a different laptop?</h2>
+      <p class="faq-a">
+        <strong>Not automatically.</strong> Because data lives in localStorage, it's tied to one browser on one device. Opening the app on your phone or a different computer starts with a blank slate.
+      </p>
+      <p class="faq-a">
+        You can move data between devices manually using the built-in backup feature:
+      </p>
+      <ol class="steps">
+        <li>On your original device, click <strong>Download backup (.json)</strong> to save a file.</li>
+        <li>Transfer that file to your other device (email it to yourself, AirDrop, a USB drive — whatever works).</li>
+        <li>On the new device, open the app and click <strong>Import backup</strong>, then select the file.</li>
+      </ol>
+      <div class="callout">
+        <strong>Keep in mind:</strong> This is a one-time copy, not a sync. Changes you make on one device after the transfer won't appear on the other. Repeat the export/import cycle whenever you want to update.
+      </div>
+    </div>
+
+    <!-- Q4 -->
+    <div class="faq-item">
+      <h2 class="faq-q">How do I delete my data?</h2>
+      <p class="faq-a">Two ways, depending on what you need:</p>
+      <p class="faq-a">
+        <strong>Delete individual visits</strong> — each row in the Saved Visits table has a delete button. One click removes that single record.
+      </p>
+      <p class="faq-a">
+        <strong>Delete everything</strong> — the app's "Clear all local data" button wipes every saved visit after a confirmation prompt. This cannot be undone.
+      </p>
+      <p class="faq-a">
+        For a complete wipe (visits <em>and</em> your stored age), open your browser's developer console and run:
+      </p>
+      <div class="callout">
+        <code>localStorage.removeItem("fertility-tracker:visits")</code><br>
+        <code>localStorage.removeItem("fertility-tracker:profile")</code>
+      </div>
+    </div>
+
+    <!-- Q5 -->
+    <div class="faq-item">
+      <h2 class="faq-q">Could someone else see my data?</h2>
+      <p class="faq-a">
+        Only if they have access to your browser on your device. localStorage is <strong>origin-scoped</strong> — no other website can read it — but it isn't encrypted. Anyone who can open your browser and navigate to the app can see your visits.
+      </p>
+      <div class="callout callout-warn">
+        <strong>Shared or public computers:</strong> If you use the app on a device others can access, clear your data when you're done, or use your browser's private/incognito mode (data is erased when the window closes).
+      </div>
+    </div>
+
+    <!-- Q6 -->
+    <div class="faq-item">
+      <h2 class="faq-q">What if I clear my browser data or switch browsers?</h2>
+      <p class="faq-a">
+        Clearing your browser's site data, cookies, or storage will <strong>permanently erase</strong> your visits. Switching to a different browser (say, Chrome to Firefox) also starts fresh — localStorage doesn't carry over.
+      </p>
+      <p class="faq-a">
+        Use the <strong>Download backup</strong> button before clearing data or switching browsers to keep a copy of your records.
+      </p>
+    </div>
+
+    <!-- Q7 -->
+    <div class="faq-item">
+      <h2 class="faq-q">Is there a storage limit?</h2>
+      <p class="faq-a">
+        Browsers typically allow <strong>5–10 MB</strong> of localStorage per site. A single visit record is a few hundred bytes, so you'd need thousands of visits before approaching the limit. For practical purposes, you won't hit it.
+      </p>
+    </div>
+
+  </div>
+
+  <footer class="page-footer">
+    Fertility Tracker is open-source and runs entirely in your browser. No analytics, no cookies, no tracking.
+  </footer>
+
+</body>
+</html>

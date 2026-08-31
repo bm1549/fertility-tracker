@@ -1483,6 +1483,7 @@ export default function LocalFertilityTracker() {
           <h1 style={{ fontFamily: "Georgia,serif", fontSize: 25, color: ink, margin: 0 }}>Local Fertility Lab Tracker</h1>
           <p style={{ fontSize: 12.5, color: "#6B6456", margin: "6px auto 14px", maxWidth: 560, lineHeight: 1.5 }}>
             Enter visits manually, paste from a spreadsheet, or import from a lab report PDF / screenshot. Everything stays in your browser — no account, no server.
+            {" "}<a href="/fertility-tracker/faq.html" target="_blank" rel="noopener noreferrer" style={{ color: sageDeep, fontWeight: 700, textDecoration: "none", borderBottom: `1px solid ${sage}` }}>Your Data FAQ →</a>
           </p>
           <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "center" }}>
             <StoragePill count={visits.length} />
