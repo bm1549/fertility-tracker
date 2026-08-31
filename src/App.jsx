@@ -4,6 +4,28 @@ import {
   ReferenceArea, ReferenceLine, ResponsiveContainer, BarChart, Bar, LabelList
 } from "recharts";
 
+// ── LAZY LOADERS FOR PDF + OCR ─────────────────────────────────────────
+async function extractPdfText(file) {
+  const pdfjsLib = await import("pdfjs-dist");
+  pdfjsLib.GlobalWorkerOptions.workerSrc = `https://cdn.jsdelivr.net/npm/pdfjs-dist@${pdfjsLib.version}/build/pdf.worker.min.mjs`;
+  const buf = await file.arrayBuffer();
+  const pdf = await pdfjsLib.getDocument({ data: buf }).promise;
+  let text = "";
+  for (let i = 1; i <= pdf.numPages; i++) {
+    const page = await pdf.getPage(i);
+    const content = await page.getTextContent();
+    text += content.items.map((it) => it.str).join(" ") + "\n";
+  }
+  return text;
+}
+async function extractImageText(file, onProgress) {
+  const Tesseract = (await import("tesseract.js")).default;
+  const { data } = await Tesseract.recognize(file, "eng", {
+    logger: (m) => { if (m.status === "recognizing text" && onProgress) onProgress(Math.round(m.progress * 100)); },
+  });
+  return data.text;
+}
+
 // ── TOKENS ───────────────────────────────────────────────────────────────
 const ink      = "#1C2B3A";
 const paper    = "#F6F5F1";
@@ -458,6 +480,60 @@ function extractNumber(raw) {
   const m = s.match(/-?\d+(\.\d+)?/);
   return m ? m[0] : "";
 }
+
+// ── DATE FORMATTING HELPERS ─────────────────────────────────────────────
+function formatDateShort(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr + "T00:00:00");
+  return d.toLocaleDateString("en-US", { month: "short", day: "numeric" });
+}
+function computeCycleDateRanges(visits) {
+  const ranges = {};
+  visits.forEach((v) => {
+    if (!ranges[v.cycleLabel]) ranges[v.cycleLabel] = { min: v.date, max: v.date };
+    else {
+      if (v.date < ranges[v.cycleLabel].min) ranges[v.cycleLabel].min = v.date;
+      if (v.date > ranges[v.cycleLabel].max) ranges[v.cycleLabel].max = v.date;
+    }
+  });
+  return ranges;
+}
+function formatDateRange(range) {
+  if (!range) return "";
+  if (range.min === range.max) return formatDateShort(range.min);
+  return `${formatDateShort(range.min)} – ${formatDateShort(range.max)}`;
+}
+
+// ── LAB RESULT PARSING PATTERNS ─────────────────────────────────────────
+const LAB_PATTERNS = [
+  { key: "fsh", label: "FSH", patterns: [/\bFSH[\s:=]+(\d+\.?\d*)/i, /follicle[\s-]*stimulat\w*[\s\w()]*?(\d+\.?\d*)/i] },
+  { key: "lh", label: "LH", patterns: [/\bLH[\s:=]+(\d+\.?\d*)/i, /luteiniz\w*[\s\w()]*?(\d+\.?\d*)/i] },
+  { key: "e2", label: "E2", patterns: [/\bE2[\s:=]+(\d+\.?\d*)/i, /estradiol[\s\w()]*?(\d+\.?\d*)/i] },
+  { key: "pgn", label: "Progesterone", patterns: [/progesterone[\s\w()]*?(\d+\.?\d*)/i, /\bP4[\s:=]+(\d+\.?\d*)/i] },
+  { key: "tsh", label: "TSH", patterns: [/\bTSH[\s:=]+(\d+\.?\d*)/i, /thyroid[\s-]*stimulat\w*[\s\w()]*?(\d+\.?\d*)/i] },
+  { key: "amh", label: "AMH", patterns: [/\bAMH[\s:=]+(\d+\.?\d*)/i, /anti[\s-]*m[uü]llerian[\s\w()]*?(\d+\.?\d*)/i] },
+];
+const DATE_EXTRACT_PATTERNS = [
+  /(\d{4}-\d{2}-\d{2})/,
+  /(\d{1,2}\/\d{1,2}\/\d{2,4})/,
+  /((?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\w*\s+\d{1,2},?\s+\d{4})/i,
+];
+function parseLabText(text) {
+  const values = {};
+  LAB_PATTERNS.forEach(({ key, patterns }) => {
+    for (const re of patterns) {
+      const m = text.match(re);
+      if (m && m[1]) { values[key] = m[1]; break; }
+    }
+  });
+  let date = "";
+  for (const re of DATE_EXTRACT_PATTERNS) {
+    const m = text.match(re);
+    if (m) { date = normalizeDate(m[1]); break; }
+  }
+  return { values, date };
+}
+
 let tempIdCounter = 0;
 function nextTempId() { tempIdCounter += 1; return `tmp-${Date.now()}-${tempIdCounter}`; }
 
@@ -748,6 +824,7 @@ function buildMergedByDay(visits, key) {
     if (v[key] === null || v[key] === undefined) return;
     if (!days[v.cycleDay]) days[v.cycleDay] = { day: v.cycleDay };
     days[v.cycleDay][v.cycleLabel] = v[key];
+    days[v.cycleDay][`${v.cycleLabel}__date`] = v.date;
   });
   return Object.values(days).sort((a, b) => a.day - b.day);
 }
@@ -841,7 +918,12 @@ function DayChart({ title, unit, sub, hormoneKey, refBands, thresholdLines, yMax
               <Tooltip
                 contentStyle={{ background: ink, border: "none", borderRadius: 4, fontSize: 12, padding: "8px 12px" }}
                 labelStyle={{ color: "#aaa", fontSize: 11 }} itemStyle={{ color: "#fff" }}
-                formatter={(v, name) => (v !== null && v !== undefined ? [`${v} ${unit}`, name] : null)}
+                formatter={(v, name, props) => {
+                  if (v === null || v === undefined) return null;
+                  const dateVal = props.payload[`${name}__date`];
+                  const dateSuffix = dateVal ? ` · ${formatDateShort(dateVal)}` : "";
+                  return [`${v} ${unit}${dateSuffix}`, name];
+                }}
                 labelFormatter={(d) => `Cycle day ${d}`} />
               {cyclesToShow.map((c) => (
                 <Line key={c} dataKey={c} name={c} type="linear" stroke={cycleColors[c]} strokeWidth={2.5}
@@ -956,7 +1038,7 @@ function ReserveChart({ visits, cycleColors, cyclesToShow, ageInfo }) {
 }
 
 // ── CYCLE FILTER (button + popover) ─────────────────────────────────────
-function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, selected, onToggle, onSelectAll, onClearAll }) {
+function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, cycleDateRanges, selected, onToggle, onSelectAll, onClearAll }) {
   const [open, setOpen] = useState(false);
   const allSelected = cycleLabels.every((c) => selected.has(c));
   const noneSelected = selected.size === 0;
@@ -994,8 +1076,13 @@ function CyclePopoverFilter({ cycleLabels, cycleColors, visitCounts, selected, o
                   <label key={c} style={{ display: "flex", alignItems: "center", gap: 9, padding: "7px 6px", borderRadius: 5, cursor: "pointer", background: active ? "#F3F1EA" : "transparent" }}>
                     <input type="checkbox" checked={active} onChange={() => onToggle(c)} style={{ width: 14, height: 14, accentColor: cycleColors[c], cursor: "pointer", flexShrink: 0 }} />
                     <span style={{ width: 10, height: 10, borderRadius: "50%", background: cycleColors[c], display: "inline-block", flexShrink: 0 }} />
-                    <span style={{ fontSize: 12.5, color: ink, lineHeight: 1.4 }}>{c}</span>
-                    <span style={{ fontSize: 10.5, color: "#9A8E7F", marginLeft: "auto" }}>{visitCounts[c] || 0} visit{(visitCounts[c] || 0) === 1 ? "" : "s"}</span>
+                    <span style={{ display: "flex", flexDirection: "column", gap: 1 }}>
+                      <span style={{ fontSize: 12.5, color: ink, lineHeight: 1.4 }}>{c}</span>
+                      {cycleDateRanges && cycleDateRanges[c] && (
+                        <span style={{ fontSize: 10, color: "#9A8E7F" }}>{formatDateRange(cycleDateRanges[c])}</span>
+                      )}
+                    </span>
+                    <span style={{ fontSize: 10.5, color: "#9A8E7F", marginLeft: "auto", whiteSpace: "nowrap" }}>{visitCounts[c] || 0} visit{(visitCounts[c] || 0) === 1 ? "" : "s"}</span>
                   </label>
                 );
               })}
@@ -1053,6 +1140,154 @@ const HORMONE_META = {
   },
 };
 
+// ── SMART IMPORT (PDF / IMAGE → DRAFT ROWS) ────────────────────────────
+function SmartImport({ onImportRows }) {
+  const [file, setFile] = useState(null);
+  const [extractedText, setExtractedText] = useState("");
+  const [parsed, setParsed] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [progress, setProgress] = useState(0);
+  const [error, setImportError] = useState("");
+  const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef(null);
+
+  const ACCEPT = ".pdf,.png,.jpg,.jpeg,.heic,.webp,.bmp,.tiff";
+
+  const handleFile = async (f) => {
+    if (!f) return;
+    setFile(f);
+    setExtractedText("");
+    setParsed(null);
+    setImportError("");
+    setLoading(true);
+    setProgress(0);
+    try {
+      let text;
+      if (f.type === "application/pdf") {
+        text = await extractPdfText(f);
+      } else {
+        text = await extractImageText(f, setProgress);
+      }
+      setExtractedText(text);
+      const result = parseLabText(text);
+      setParsed(result);
+    } catch (err) {
+      setImportError(`Could not extract text: ${err.message}`);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleDrop = (e) => { e.preventDefault(); setDragOver(false); handleFile(e.dataTransfer.files[0]); };
+  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
+  const handleDragLeave = () => setDragOver(false);
+
+  const detectedCount = parsed ? Object.keys(parsed.values).length : 0;
+
+  const handleAddToGrid = () => {
+    if (!parsed) return;
+    const row = { date: parsed.date || "", cycleLabel: "", cycleDay: "", notes: `Imported from ${file?.name || "file"}` };
+    HORMONE_FIELDS.forEach((h) => { row[h.key] = parsed.values[h.key] || ""; });
+    onImportRows([row]);
+    setFile(null);
+    setExtractedText("");
+    setParsed(null);
+  };
+
+  return (
+    <div style={{ background: panel, border: `1px solid ${hair}`, borderRadius: 6, padding: "18px 20px" }}>
+      <h3 style={{ fontFamily: "Georgia,serif", fontSize: 16, color: ink, margin: "0 0 6px" }}>Import from PDF or image</h3>
+      <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 14px", lineHeight: 1.5 }}>
+        Upload a lab report PDF or a screenshot/photo of your results. The app extracts text and detects hormone values automatically — review before saving.
+      </p>
+
+      {/* Drop zone */}
+      <div
+        onClick={() => fileRef.current?.click()}
+        onDrop={handleDrop} onDragOver={handleDragOver} onDragLeave={handleDragLeave}
+        style={{
+          border: `2px dashed ${dragOver ? sageDeep : hair}`, borderRadius: 8,
+          padding: "28px 20px", textAlign: "center", cursor: "pointer",
+          background: dragOver ? "#EAF0EA" : paper,
+          transition: "background 0.15s, border-color 0.15s",
+        }}
+      >
+        <div style={{ fontSize: 28, marginBottom: 6 }}>📄</div>
+        <div style={{ fontSize: 13, color: ink, fontWeight: 600 }}>
+          {loading ? "Processing…" : "Drop a file here, or click to browse"}
+        </div>
+        <div style={{ fontSize: 11, color: "#9A8E7F", marginTop: 4 }}>
+          PDF, PNG, JPG, HEIC — lab reports or screenshots
+        </div>
+        <input ref={fileRef} type="file" accept={ACCEPT} style={{ display: "none" }}
+          onChange={(e) => handleFile(e.target.files[0])} />
+      </div>
+
+      {/* Loading state */}
+      {loading && (
+        <div style={{ marginTop: 14, display: "flex", alignItems: "center", gap: 10 }}>
+          <div style={{ flex: 1, height: 6, background: "#E7E7E4", borderRadius: 3, overflow: "hidden" }}>
+            <div style={{ width: `${Math.max(progress, 10)}%`, height: "100%", background: sageDeep, borderRadius: 3, transition: "width 0.3s" }} />
+          </div>
+          <span style={{ fontSize: 11, color: "#6B6456", whiteSpace: "nowrap" }}>
+            {file?.type === "application/pdf" ? "Extracting PDF text…" : `OCR ${progress}%`}
+          </span>
+        </div>
+      )}
+
+      {/* Error */}
+      {error && (
+        <div style={{ marginTop: 12, fontSize: 12, color: rust, background: "#FBEFEA", border: `1px solid ${rust}`, borderRadius: 4, padding: "8px 12px" }}>{error}</div>
+      )}
+
+      {/* Results */}
+      {parsed && !loading && (
+        <div style={{ marginTop: 16, display: "grid", gap: 14 }}>
+          {/* Detected values */}
+          <div style={{ background: detectedCount > 0 ? "#EAF0EA" : "#FFF8EC", border: `1px solid ${detectedCount > 0 ? sage : amber}`, borderRadius: 6, padding: "14px 16px" }}>
+            <div style={{ fontSize: 12, fontWeight: 700, color: ink, marginBottom: 8 }}>
+              {detectedCount > 0 ? `✓ Detected ${detectedCount} value${detectedCount === 1 ? "" : "s"}` : "No lab values detected"}
+              {parsed.date && <span style={{ fontWeight: 400, color: "#6B6456" }}> · Date: {formatDateShort(parsed.date)} ({parsed.date})</span>}
+            </div>
+            {detectedCount > 0 && (
+              <div style={{ display: "flex", flexWrap: "wrap", gap: 8 }}>
+                {LAB_PATTERNS.filter(({ key }) => parsed.values[key]).map(({ key, label }) => (
+                  <div key={key} style={{ display: "flex", alignItems: "center", gap: 5, background: panel, border: `1px solid ${hair}`, borderRadius: 4, padding: "5px 10px", fontSize: 12 }}>
+                    <span style={{ fontWeight: 700, color: sageDeep }}>{label}</span>
+                    <span style={{ color: ink }}>{parsed.values[key]}</span>
+                    <span style={{ color: "#9A8E7F", fontSize: 10 }}>{(HORMONE_FIELDS.find((h) => h.key === key) || {}).unit || ""}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+            {detectedCount > 0 && (
+              <button onClick={handleAddToGrid}
+                style={{ marginTop: 12, padding: "8px 18px", borderRadius: 4, border: "none", background: sageDeep, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>
+                Add to entry grid →
+              </button>
+            )}
+          </div>
+
+          {/* Raw text (collapsible) */}
+          <details>
+            <summary style={{ fontSize: 11.5, color: "#6B6456", cursor: "pointer", fontWeight: 600 }}>
+              View extracted text ({extractedText.length} characters)
+            </summary>
+            <pre style={{ marginTop: 8, padding: 12, background: paper, border: `1px solid ${hair}`, borderRadius: 4, fontSize: 11, color: ink, whiteSpace: "pre-wrap", wordBreak: "break-word", maxHeight: 200, overflowY: "auto", lineHeight: 1.5 }}>
+              {extractedText}
+            </pre>
+          </details>
+
+          <button onClick={() => { setFile(null); setExtractedText(""); setParsed(null); }}
+            style={{ justifySelf: "start", padding: "6px 14px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: "#6B6456", fontSize: 11.5, cursor: "pointer" }}>
+            Clear &amp; try another file
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // A thin labeled rule to group related charts as the page scrolls, since
 // there's no tab bar hiding sections from each other anymore.
 function SectionDivider({ label }) {
@@ -1080,6 +1315,8 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
     cycleLabels.forEach((c, i) => { map[c] = CYCLE_PALETTE[i % CYCLE_PALETTE.length]; });
     return map;
   }, [cycleLabels]);
+
+  const cycleDateRanges = useMemo(() => computeCycleDateRanges(visits), [visits]);
 
   const visitCounts = useMemo(() => {
     const counts = {};
@@ -1125,8 +1362,8 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
   }
 
   return (
-    <div>
-      <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 12, marginBottom: 4 }}>
+    <div style={{ maxWidth: 720, margin: "0 auto" }}>
+      <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 12, marginBottom: 4, textAlign: "center" }}>
         <div style={{ fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: amber, fontWeight: 700, marginBottom: 3 }}>Cycle-by-Cycle Trends</div>
         <h2 style={{ fontFamily: "Georgia,serif", fontSize: 24, color: ink, margin: 0 }}>Hormone &amp; Cycle Dashboard</h2>
         <p style={{ fontSize: 12.5, color: "#6B6456", margin: "5px 0 0" }}>
@@ -1134,12 +1371,25 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
         </p>
       </div>
 
-      <div style={{ margin: "12px 0 16px" }}>
-        <CyclePopoverFilter cycleLabels={cycleLabels} cycleColors={cycleColors} visitCounts={visitCounts} selected={selectedCycles} onToggle={toggleCycle} onSelectAll={selectAllCycles} onClearAll={clearAllCycles} />
+      <div style={{ margin: "12px 0 6px", display: "flex", justifyContent: "center" }}>
+        <CyclePopoverFilter cycleLabels={cycleLabels} cycleColors={cycleColors} visitCounts={visitCounts} cycleDateRanges={cycleDateRanges} selected={selectedCycles} onToggle={toggleCycle} onSelectAll={selectAllCycles} onClearAll={clearAllCycles} />
       </div>
 
+      {/* Cycle date legend */}
+      {shown.length > 0 && (
+        <div style={{ display: "flex", flexWrap: "wrap", gap: "4px 14px", justifyContent: "center", margin: "0 0 16px", fontSize: 11, color: "#6B6456" }}>
+          {shown.map((c) => (
+            <span key={c} style={{ display: "inline-flex", alignItems: "center", gap: 4 }}>
+              <span style={{ width: 8, height: 8, borderRadius: "50%", background: cycleColors[c], display: "inline-block" }} />
+              <span style={{ fontWeight: 600 }}>{c}</span>
+              {cycleDateRanges[c] && <span style={{ color: "#9A8E7F" }}>({formatDateRange(cycleDateRanges[c])})</span>}
+            </span>
+          ))}
+        </div>
+      )}
+
       {selectedCycles.size === 0 && (
-        <div style={{ margin: "0 0 16px", padding: "11px 15px", background: "#F7EFDF", border: `1px solid ${amber}`, borderRadius: 4, fontSize: 12.5, color: ink, lineHeight: 1.5 }}>
+        <div style={{ margin: "0 0 16px", padding: "11px 15px", background: "#F7EFDF", border: `1px solid ${amber}`, borderRadius: 4, fontSize: 12.5, color: ink, lineHeight: 1.5, textAlign: "center" }}>
           No cycles selected — pick at least one cycle above to see chart data.
         </div>
       )}
@@ -1172,8 +1422,8 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo }) {
         <ReserveChart visits={visits} cycleColors={cycleColors} cyclesToShow={shown} ageInfo={ageInfo} />
       </div>
 
-      <div style={{ marginTop: 20, padding: "12px 16px", background: "#EFECE3", borderLeft: `3px solid ${amber}`, fontSize: 12, color: ink, lineHeight: 1.55 }}>
-        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart below — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. FSH, AMH, and AFC bands additionally adjust to the age you enter above, since those three references shift meaningfully with age; the rest track cycle phase rather than age. The colour bar below each chart shows the three cycle phases (follicular, ovulatory, luteal) across the tracked days. Expand the Hormone Guide beneath each chart for a full explanation and support tips.
+      <div style={{ marginTop: 20, padding: "12px 16px", background: "#EFECE3", borderLeft: `3px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.55 }}>
+        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. FSH, AMH, and AFC bands adjust to the age you enter above. The colour bar on each chart shows the three cycle phases (follicular, ovulatory, luteal). Expand the Hormone Guide beneath each chart for explanation and support tips.
       </div>
     </div>
   );
@@ -1330,20 +1580,28 @@ export default function LocalFertilityTracker() {
 
   if (!ready) return null;
 
+  const handleSmartImportRows = (rows) => {
+    setDraftRows((prev) => {
+      const newRows = rows.map((r) => ({ tempId: nextTempId(), ...EMPTY_DRAFT_FIELDS, ...r }));
+      return withTrailingBlank([...newRows, ...prev]);
+    });
+    setStatus("Values imported to the entry grid — review and fill in the date, cycle, and day fields before saving.");
+  };
+
   return (
     <div style={{ fontFamily: "'Helvetica Neue',Arial,sans-serif", background: paper, minHeight: "100%", padding: "22px 18px 48px" }}>
-      <div style={{ maxWidth: 960, margin: "0 auto" }}>
+      <div style={{ maxWidth: 880, margin: "0 auto" }}>
 
         <DisclaimerBanner />
 
-        <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 12, marginBottom: 16 }}>
-          <div style={{ fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: amber, fontWeight: 700, marginBottom: 3 }}>Browser-local storage</div>
+        {/* ─── CENTERED HEADER ─────────────────────────────────── */}
+        <div style={{ borderBottom: `2px solid ${ink}`, paddingBottom: 14, marginBottom: 20, textAlign: "center" }}>
+          <div style={{ fontSize: 10.5, letterSpacing: "0.12em", textTransform: "uppercase", color: amber, fontWeight: 700, marginBottom: 3 }}>Browser-local storage · 100% free</div>
           <h1 style={{ fontFamily: "Georgia,serif", fontSize: 25, color: ink, margin: 0 }}>Local Fertility Lab Tracker</h1>
-          <p style={{ fontSize: 12.5, color: "#6B6456", margin: "6px 0 12px" }}>
-            Enter visits in the grid below like a spreadsheet — type directly, or copy cells from Excel or Google
-            Sheets and paste them in. Everything is saved in your browser's local storage on this device, no account, no server.
+          <p style={{ fontSize: 12.5, color: "#6B6456", margin: "6px auto 14px", maxWidth: 560, lineHeight: 1.5 }}>
+            Enter visits manually, paste from a spreadsheet, or import from a lab report PDF / screenshot. Everything stays in your browser — no account, no server.
           </p>
-          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center" }}>
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap", alignItems: "center", justifyContent: "center" }}>
             <StoragePill count={visits.length} />
             {visits.length === 0 && (
               <button onClick={handleLoadFakeData} style={{ padding: "6px 13px", borderRadius: 20, border: `1px solid ${sageDeep}`, background: panel, color: sageDeep, fontSize: 11.5, fontWeight: 700, cursor: "pointer" }}>
@@ -1354,15 +1612,19 @@ export default function LocalFertilityTracker() {
               <label htmlFor="user-age" style={{ fontSize: 11.5, fontWeight: 700, color: ink }}>Age</label>
               <input id="user-age" type="text" inputMode="numeric" value={age}
                 onChange={(e) => handleAgeChange(e.target.value)} placeholder="e.g. 34"
-                style={{ width: 48, padding: "5px 8px", borderRadius: 20, border: `1px solid ${hair}`, fontSize: 12.5, background: panel, color: ink }} />
+                style={{ width: 48, padding: "5px 8px", borderRadius: 20, border: `1px solid ${hair}`, fontSize: 12.5, background: panel, color: ink, textAlign: "center" }} />
               <span style={{ fontSize: 11, color: "#8A8272" }}>
-                {age ? `FSH/AMH/AFC ranges tuned for ${ageInfo.band.label}` : "Adjusts FSH/AMH/AFC reference ranges below"}
+                {age ? `Ranges tuned for ${ageInfo.band.label}` : "Tunes FSH/AMH/AFC ranges"}
               </span>
             </div>
           </div>
         </div>
 
         <div style={{ display: "grid", gap: 16 }}>
+          {/* ─── SMART IMPORT ──────────────────────────────────── */}
+          <SmartImport onImportRows={handleSmartImportRows} />
+
+          {/* ─── MANUAL ENTRY GRID ────────────────────────────── */}
           <SpreadsheetGrid rows={draftRows} onChangeCell={changeDraftCell} onPasteBlock={pasteBlock} onRemoveRow={removeDraftRow} onDuplicateRow={duplicateDraftRow} onAddRows={addRows} onSaveRow={saveRow} onSaveAll={saveAllValid} />
 
           {error && <div style={{ fontSize: 12, color: rust, background: "#FBEFEA", border: `1px solid ${rust}`, borderRadius: 4, padding: "8px 12px" }}>{error}</div>}
@@ -1374,14 +1636,14 @@ export default function LocalFertilityTracker() {
             <VisitTable visits={visits} onEdit={editVisit} onDelete={requestDelete} />
           </div>
 
-          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", borderTop: `1px solid ${hair}`, paddingTop: 16 }}>
+          <div style={{ display: "flex", gap: 10, flexWrap: "wrap", alignItems: "center", justifyContent: "center", borderTop: `1px solid ${hair}`, paddingTop: 16 }}>
             <button onClick={handleExport} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${sageDeep}`, background: panel, color: sageDeep, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Download backup (.json)</button>
             <label style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: ink, fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>
               Import backup
               <input type="file" accept="application/json" onChange={handleImport} style={{ display: "none" }} />
             </label>
             {visits.length === 0 && <button onClick={handleLoadFakeData} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: ink, fontSize: 12.5, cursor: "pointer" }}>Load fake data</button>}
-            <button onClick={requestClearAll} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: "none", color: rust, fontSize: 12.5, cursor: "pointer", marginLeft: "auto" }}>Clear all local data</button>
+            <button onClick={requestClearAll} style={{ padding: "9px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: "none", color: rust, fontSize: 12.5, cursor: "pointer" }}>Clear all local data</button>
           </div>
 
           <HormoneDashboardSection visits={visits} onLoadFakeData={handleLoadFakeData} ageInfo={ageInfo} />
