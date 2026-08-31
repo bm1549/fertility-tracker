@@ -624,7 +624,7 @@ function VisitTable({ visits, onEdit, onDelete }) {
   );
 }
 
-// ── STORAGE PILL / CONFIRM BAR ───────────────────────────────────────────
+// ── STORAGE PILL / CONFIRM MODAL ─────────────────────────────────────────
 function StoragePill({ count }) {
   return (
     <div style={{ display: "inline-flex", alignItems: "center", gap: 8, background: "#EFECE3", border: `1px solid ${hair}`, borderRadius: 20, padding: "6px 14px", fontSize: 11.5, color: "#4A4438" }}>
@@ -633,12 +633,46 @@ function StoragePill({ count }) {
     </div>
   );
 }
-function ConfirmBar({ message, onConfirm, onCancel }) {
+// Centered popup dialog for destructive confirmations (single-visit and
+// clear-all delete). Fixed to the viewport so it's always centered on
+// screen regardless of scroll position, with a dimmed backdrop that
+// cancels on click. Escape also cancels, and Cancel is focused by default
+// since the other option is destructive.
+function ConfirmModal({ message, onConfirm, onCancel }) {
+  const cancelRef = useRef(null);
+  useEffect(() => {
+    cancelRef.current?.focus();
+    const handleKey = (e) => { if (e.key === "Escape") onCancel(); };
+    window.addEventListener("keydown", handleKey);
+    return () => window.removeEventListener("keydown", handleKey);
+  }, [onCancel]);
+
   return (
-    <div style={{ display: "flex", alignItems: "center", gap: 12, flexWrap: "wrap", background: "#FBEFEA", border: `1px solid ${rust}`, borderRadius: 4, padding: "10px 14px", fontSize: 12.5, color: ink }}>
-      <span style={{ flex: 1, minWidth: 200 }}>{message}</span>
-      <button onClick={onCancel} style={{ padding: "6px 13px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: ink, fontSize: 12, cursor: "pointer" }}>Cancel</button>
-      <button onClick={onConfirm} style={{ padding: "6px 13px", borderRadius: 4, border: "none", background: rust, color: "#fff", fontSize: 12, fontWeight: 700, cursor: "pointer" }}>Confirm</button>
+    <div
+      onMouseDown={(e) => { if (e.target === e.currentTarget) onCancel(); }}
+      style={{
+        position: "fixed", inset: 0, background: "rgba(28,43,58,0.45)",
+        display: "flex", alignItems: "center", justifyContent: "center",
+        padding: 20, zIndex: 1000,
+      }}
+    >
+      <div
+        role="alertdialog" aria-modal="true" aria-labelledby="confirm-modal-message"
+        style={{
+          background: panel, borderRadius: 8, border: `1px solid ${rust}`,
+          padding: "22px 22px 18px", maxWidth: 420, width: "100%",
+          boxShadow: "0 16px 40px rgba(28,43,58,0.3)",
+        }}
+      >
+        <div style={{ display: "flex", gap: 10, alignItems: "flex-start", marginBottom: 18 }}>
+          <span style={{ fontSize: 16, lineHeight: 1, marginTop: 1 }} aria-hidden="true">⚠️</span>
+          <p id="confirm-modal-message" style={{ margin: 0, fontSize: 13.5, color: ink, lineHeight: 1.55 }}>{message}</p>
+        </div>
+        <div style={{ display: "flex", justifyContent: "flex-end", gap: 10 }}>
+          <button ref={cancelRef} onClick={onCancel} style={{ padding: "8px 16px", borderRadius: 4, border: `1px solid ${hair}`, background: panel, color: ink, fontSize: 12.5, cursor: "pointer" }}>Cancel</button>
+          <button onClick={onConfirm} style={{ padding: "8px 16px", borderRadius: 4, border: "none", background: rust, color: "#fff", fontSize: 12.5, fontWeight: 700, cursor: "pointer" }}>Confirm</button>
+        </div>
+      </div>
     </div>
   );
 }
@@ -1513,7 +1547,7 @@ export default function LocalFertilityTracker() {
 
           {error && <div style={{ fontSize: 12, color: rust, background: "#FBEFEA", border: `1px solid ${rust}`, borderRadius: 4, padding: "8px 12px" }}>{error}</div>}
           {status && !error && <div style={{ fontSize: 12, color: sageDeep, background: "#EAF0EA", border: `1px solid ${sage}`, borderRadius: 4, padding: "8px 12px" }}>{status}</div>}
-          {pendingConfirm && <ConfirmBar message={pendingConfirm.message} onConfirm={pendingConfirm.action} onCancel={() => setPendingConfirm(null)} />}
+          {pendingConfirm && <ConfirmModal message={pendingConfirm.message} onConfirm={pendingConfirm.action} onCancel={() => setPendingConfirm(null)} />}
 
           <div>
             <h3 style={{ fontFamily: "Georgia,serif", fontSize: 16, color: ink, margin: "4px 0 8px" }}>Saved visits</h3>
