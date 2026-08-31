@@ -929,7 +929,7 @@ function GuidePanel({ hormoneKey, ageInfo }) {
             <div style={{ fontSize: 10, fontWeight: 700, letterSpacing: "0.08em", textTransform: "uppercase", color: g.color, marginBottom: 6 }}>Optimal ranges</div>
             {ageRows && (
               <div style={{ fontSize: 11, color: g.color, fontWeight: 700, marginBottom: 6 }}>
-                Showing thresholds for age {ageInfo.band.label}{ageInfo.isDefault ? " — default view, add your age at the top of the page to personalize" : ""}.
+                Showing thresholds for age {ageInfo.band.label}{ageInfo.isDefault ? " — default view, add your age in the “Import from PDF or image” panel above to personalize" : ""}.
               </div>
             )}
             <div style={{ display: "grid", gap: 4 }}>
@@ -1033,7 +1033,7 @@ function AFCByOvaryChart({ visits, selectedCycles, ageInfo }) {
         <h3 style={{ fontFamily: "Georgia,serif", fontSize: 19, color: ink, margin: 0 }}>AFC by ovary</h3>
         <span style={{ fontSize: 11, letterSpacing: "0.07em", textTransform: "uppercase", color: "#8A8272" }}>follicles</span>
       </div>
-      <p style={{ fontSize: 12, color: "#6B6456", margin: "2px 0 12px", lineHeight: 1.45 }}>Right and left ovary counts stacked to show the total, for every visit where a count was recorded. Threshold lines reflect age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}.</p>
+      <p style={{ fontSize: 12, color: "#6B6456", margin: "2px 0 12px", lineHeight: 1.45 }}>Right and left ovary counts stacked to show the total, for every visit where a count was recorded. Threshold lines reflect age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age in the “Import from PDF or image” panel above to personalize)" : ""}.</p>
       {rows.length === 0 ? (
         <div style={{ padding: "36px 12px", textAlign: "center", color: "#8A8272", fontSize: 12.5, border: `1px dashed ${hair}`, borderRadius: 6 }}>
           No AFC counts recorded for the selected cycle(s).
@@ -1106,7 +1106,7 @@ function ReserveChart({ visits, cycleColors, cyclesToShow, ageInfo }) {
     <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr)", gap: 16 }}>
       <div style={{ background: panel, border: `1px solid ${hair}`, borderRadius: 6, padding: "18px 16px 16px" }}>
         <h3 style={{ fontFamily: "Georgia,serif", fontSize: 19, color: ink, margin: "0 0 4px" }}>Ovarian reserve markers</h3>
-        <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 18px", lineHeight: 1.45 }}>AMH and TSH are shown by visit date since they're stable across the cycle — bars are colored and labeled by the cycle each visit belongs to, and only the cycle(s) selected above are shown. AFC is shown in the chart above (by ovary, per visit), and FSH — the third standard reserve marker — has its own chart further up. AMH's threshold reflects age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age above to personalize)" : ""}; TSH's target doesn't shift with age.</p>
+        <p style={{ fontSize: 12, color: "#6B6456", margin: "0 0 18px", lineHeight: 1.45 }}>AMH and TSH are shown by visit date since they're stable across the cycle — bars are colored and labeled by the cycle each visit belongs to, and only the cycle(s) selected above are shown. AFC is shown in the chart above (by ovary, per visit), and FSH — the third standard reserve marker — has its own chart further up. AMH's threshold reflects age {ageInfo.band.label}{ageInfo.isDefault ? " (default — add your age in the “Import from PDF or image” panel above to personalize)" : ""}; TSH's target doesn't shift with age.</p>
         <div style={{ display: "grid", gridTemplateColumns: "minmax(0, 1fr) minmax(0, 1fr)", gap: 20 }}>
           <PointInTimeChart visits={visits} field="amh" label="AMH" unit="ng/mL" cycleColors={cycleColors} cyclesToShow={cyclesToShow}
             band={{ y1: amh.optimalMin, y2: amhYMax }} refLine={{ y: amh.dor, label: `DOR concern <${amh.dor}` }} yMax={amhYMax} />
@@ -1613,7 +1613,7 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
         <SectionDivider label="Ovarian Reserve" />
         {ageInfo.isDefault && (
           <div style={{ padding: "10px 14px", background: "#F7EFDF", border: `1px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.5 }}>
-            FSH, AMH, and AFC reference ranges below are shown for the default <strong>under-35</strong> band. Add your age at the top of the page to see thresholds tuned to your age instead.
+            FSH, AMH, and AFC reference ranges below are shown for the default <strong>under-35</strong> band. Add your age in the <em>Import from PDF or image</em> panel at the top of the page to see thresholds tuned to your age instead.
           </div>
         )}
         <DayChart {...HORMONE_META.fsh}
@@ -1631,7 +1631,7 @@ function HormoneDashboardSection({ visits, onLoadFakeData, ageInfo, onRenameCycl
       </div>
 
       <div style={{ marginTop: 20, padding: "12px 16px", background: "#EFECE3", borderLeft: `3px solid ${amber}`, borderRadius: 4, fontSize: 12, color: ink, lineHeight: 1.55 }}>
-        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. <strong>DOR</strong> (seen on several reference lines) stands for <em>diminished ovarian reserve</em> — a lower-than-typical reading for your age, worth discussing with your doctor, not a diagnosis by itself. FSH, AMH, and AFC bands adjust to the age you enter above. The colour bar on each chart shows the three cycle phases (follicular, ovulatory, luteal). Expand the Hormone Guide beneath each chart for explanation and support tips.
+        <strong>How to read:</strong> Use the <em>Cycles</em> button above to choose which cycle(s) appear on every chart — it defaults to all of them. Reference bands use commonly cited clinical targets (ASRM, Endocrine Society, IVF outcome literature) — general guidance, not a diagnosis. <strong>DOR</strong> (seen on several reference lines) stands for <em>diminished ovarian reserve</em> — a lower-than-typical reading for your age, worth discussing with your doctor, not a diagnosis by itself. FSH, AMH, and AFC bands adjust to the age you enter in the <em>Import from PDF or image</em> panel at the top of the page. The colour bar on each chart shows the three cycle phases (follicular, ovulatory, luteal). Expand the Hormone Guide beneath each chart for explanation and support tips.
       </div>
     </div>
   );
